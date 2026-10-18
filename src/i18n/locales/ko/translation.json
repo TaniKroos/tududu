@@ -144,6 +144,10 @@
           "transcribe_with_post_process": {
             "name": "후처리 단축키",
             "description": "선택 사항: 항상 AI 후처리를 적용하는 전용 단축키입니다."
+          },
+          "transcribe_translate": {
+            "name": "Translate Shortcut",
+            "description": "Hold to speak; your words are pasted in your translation language."
           }
         },
         "errors": {
@@ -631,6 +635,17 @@
         "label": "새 소식 표시",
         "description": "Tududu 업데이트 후 릴리스 노트를 표시합니다"
       }
+    },
+    "translation": {
+      "title": "Translation",
+      "target": {
+        "title": "Translate To",
+        "description": "The language the translate shortcut pastes your speech in.",
+        "placeholder": "Choose a language"
+      },
+      "unsupportedModel": "{{model}} can't translate. Choose Canary 1B v2 on the Models page to translate into European languages.",
+      "unreachableTarget": "{{model}} can't translate {{source}} into {{target}}. Choose another language.",
+      "chooseLanguage": "Choose a language to start translating with the translate shortcut."
     }
   },
   "footer": {

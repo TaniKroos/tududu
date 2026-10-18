@@ -49,7 +49,8 @@ impl<'a> LiveSession<'a> {
         let settings = get_settings(&tm.app_handle);
         let effective_language =
             effective_language_for_model(&settings, tm.model_manager.as_ref(), model_id);
-        let setup = run_setup(info, &settings, &effective_language);
+        let translation = tm.recording_translation();
+        let setup = run_setup(info, &settings, &effective_language, translation.as_deref());
         let decoder = match mode {
             LiveDecode::None => unreachable!("returned above"),
             LiveDecode::Stream => {

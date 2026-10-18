@@ -35,6 +35,12 @@ pub struct CliArgs {
     #[arg(short = 'f', long, value_name = "WAV")]
     pub transcribe_file: Option<PathBuf>,
 
+    /// Translate the --transcribe-file audio into this language (e.g. `de`)
+    /// instead of transcribing it, as the translate shortcut does. The source
+    /// language is the app's selected language.
+    #[arg(long, value_name = "LANG", requires = "transcribe_file")]
+    pub translate_to: Option<String>,
+
     /// Model id to load for --transcribe-file (default: the selected model).
     #[arg(long)]
     pub model: Option<String>,

@@ -144,6 +144,10 @@
           "transcribe_with_post_process": {
             "name": "Snabbkommando för efterbearbetning",
             "description": "Valfritt: En dedikerad snabbknapp som alltid tillämpar AI-efterbearbetning på din transkription."
+          },
+          "transcribe_translate": {
+            "name": "Translate Shortcut",
+            "description": "Hold to speak; your words are pasted in your translation language."
           }
         },
         "errors": {
@@ -631,6 +635,17 @@
         "label": "Visa nyheter",
         "description": "Visa versionsinformation efter Tududu-uppdateringar"
       }
+    },
+    "translation": {
+      "title": "Translation",
+      "target": {
+        "title": "Translate To",
+        "description": "The language the translate shortcut pastes your speech in.",
+        "placeholder": "Choose a language"
+      },
+      "unsupportedModel": "{{model}} can't translate. Choose Canary 1B v2 on the Models page to translate into European languages.",
+      "unreachableTarget": "{{model}} can't translate {{source}} into {{target}}. Choose another language.",
+      "chooseLanguage": "Choose a language to start translating with the translate shortcut."
     }
   },
   "footer": {

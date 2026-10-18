@@ -263,6 +263,10 @@ pub struct TranscriptionManager {
     /// yet. This prevents a second worker from starting after finalize/cancel
     /// closes the router but before the first worker has fully exited.
     active_stream_worker: Arc<AtomicU64>,
+    /// Target language the current recording translates into, set when its
+    /// shortcut starts it; `None` transcribes. Batch re-transcriptions (history
+    /// retry, CLI files) never read it.
+    recording_translation: Arc<Mutex<Option<String>>>,
 }
 
 impl TranscriptionManager {
@@ -282,6 +286,7 @@ impl TranscriptionManager {
             stream_active: Arc::new(AtomicBool::new(false)),
             next_stream_worker_id: Arc::new(AtomicU64::new(1)),
             active_stream_worker: Arc::new(AtomicU64::new(0)),
+            recording_translation: Arc::new(Mutex::new(None)),
         };
 
         // Start the idle watcher
@@ -704,6 +709,17 @@ impl TranscriptionManager {
         self.engine.loaded().map(|info| info.backend)
     }
 
+    /// Set the language the next recording translates into (`None` to
+    /// transcribe). Call before [`Self::start_stream`] so the live decode
+    /// picks it up too.
+    pub fn set_recording_translation(&self, target: Option<String>) {
+        *self.recording_translation.lock().unwrap() = target;
+    }
+
+    fn recording_translation(&self) -> Option<String> {
+        self.recording_translation.lock().unwrap().clone()
+    }
+
     /// Whether a live streaming run is currently in flight.
     pub fn is_streaming(&self) -> bool {
         self.stream_active.load(Ordering::Acquire)
@@ -886,7 +902,13 @@ impl TranscriptionManager {
     /// Transcribe a whole clip in batch: a re-transcribed history entry, or
     /// a file from the CLI.
     pub fn transcribe(&self, audio: Vec<f32>) -> Result<String> {
-        self.complete(Instant::now(), audio, None)
+        self.complete(Instant::now(), audio, None, None)
+    }
+
+    /// Like [`Self::transcribe`], translating the clip into `target` (the
+    /// CLI's --translate-to).
+    pub fn translate(&self, audio: Vec<f32>, target: &str) -> Result<String> {
+        self.complete(Instant::now(), audio, None, Some(target))
     }
 
     /// Transcribe a finished recording: what its live decode produced, or a
@@ -894,7 +916,8 @@ impl TranscriptionManager {
     pub fn transcribe_recording(&self, samples: Vec<f32>) -> Result<String> {
         let started = Instant::now();
         let live = self.finalize_live(samples.len())?;
-        self.complete(started, samples, live)
+        let translation = self.recording_translation();
+        self.complete(started, samples, live, translation.as_deref())
     }
 
     /// The final text of one transcription, from its live result or else a
@@ -904,6 +927,7 @@ impl TranscriptionManager {
         started: Instant,
         audio: Vec<f32>,
         live: Option<RunOutcome>,
+        translation: Option<&str>,
     ) -> Result<String> {
         #[cfg(debug_assertions)]
         if std::env::var("HANDY_FORCE_TRANSCRIPTION_FAILURE").is_ok() {
@@ -922,15 +946,14 @@ impl TranscriptionManager {
 
         let outcome = match live {
             Some(outcome) => outcome,
-            None => self.decode_batch(audio)?,
+            None => self.decode_batch(audio, translation)?,
         };
         let settings = get_settings(&self.app_handle);
         let final_result = finish_text(outcome, &settings);
 
-        let translation_note = if settings.translate_to_english {
-            " (translated)"
-        } else {
-            ""
+        let translation_note = match translation {
+            Some(target) => format!(" (translation to '{}' requested)", target),
+            None => String::new(),
         };
         // Real-time factor. Input PCM is 16 kHz mono, so audio length in seconds
         // is samples / 16000. `speedup` is audio_secs / elapsed_secs — e.g. 4.00x
@@ -959,7 +982,7 @@ impl TranscriptionManager {
 
     /// Decode a whole clip with the loaded model, loading it first if a load
     /// is under way.
-    fn decode_batch(&self, audio: Vec<f32>) -> Result<RunOutcome> {
+    fn decode_batch(&self, audio: Vec<f32>, translation: Option<&str>) -> Result<RunOutcome> {
         // A cancel from here on (during the model-load wait or chunk planning
         // included) stops every run of this transcription.
         let mark = self.engine.cancel_mark();
@@ -1010,14 +1033,8 @@ impl TranscriptionManager {
                 "Model failed to load after auto-load attempt. Please check your model settings."
             ));
         };
-        self.transcribe_cpp(
-            mark,
-            info,
-            audio,
-            &settings,
-            &validated_language,
-            &active_model,
-        )
+        let setup = run_setup(&info, &settings, &validated_language, translation);
+        self.transcribe_cpp(mark, info, audio, &settings, setup, &active_model)
     }
 
     /// transcribe-cpp: the model runs in the engine's worker process, which
@@ -1029,10 +1046,9 @@ impl TranscriptionManager {
         info: LoadedInfo,
         audio: Vec<f32>,
         settings: &AppSettings,
-        validated_language: &str,
+        setup: RunSetup,
         active_model: &str,
     ) -> Result<RunOutcome> {
-        let setup = run_setup(&info, settings, validated_language);
         let whole = |pcm: Vec<f32>| {
             self.run_batch(mark, pcm, &setup.run_options, active_model)
                 .map_err(engine_error)
@@ -1115,7 +1131,8 @@ struct RunSetup {
     run_options: RunOptions,
     languages: Vec<String>,
     applied_language_hint: Option<String>,
-    output_was_translated: bool,
+    /// The language the model was asked to translate into, if it translates.
+    translated_to: Option<String>,
 }
 
 impl RunSetup {
@@ -1136,7 +1153,7 @@ impl RunSetup {
                 settings,
                 self.applied_language_hint.as_deref(),
                 &self.languages,
-                self.output_was_translated,
+                self.translated_to.as_deref(),
             ),
             model_detected_language,
         )
@@ -1146,9 +1163,18 @@ impl RunSetup {
 /// The loaded model's live capabilities (cheap GGUF-metadata reads) are the
 /// source of truth, not the ModelManager copy; translate is gated on what the
 /// model advertises.
-fn run_setup(info: &LoadedInfo, settings: &AppSettings, validated_language: &str) -> RunSetup {
+///
+/// `translation` is the target language this run was asked to translate into
+/// (the recording's translate shortcut), or `None` to transcribe.
+fn run_setup(
+    info: &LoadedInfo,
+    settings: &AppSettings,
+    validated_language: &str,
+    translation: Option<&str>,
+) -> RunSetup {
     let model_supports_translate = info.capabilities.supports_translate;
     let languages = info.capabilities.languages.clone();
+    let translate_targets = &info.capabilities.translate_target_languages;
     debug!(
         "transcribe-cpp model '{}' on '{}': initial_prompt={}, vocabulary={}, translate={}, languages={:?}",
         settings.selected_model,
@@ -1160,12 +1186,13 @@ fn run_setup(info: &LoadedInfo, settings: &AppSettings, validated_language: &str
     );
 
     let run_plan = transcribe_cpp_run_plan(
-        settings.translate_to_english,
+        translation,
         validated_language,
         &languages,
         model_supports_translate,
+        translate_targets,
     );
-    let output_was_translated = run_plan.target_language.as_deref() == Some("en");
+    let translated_to = run_plan.target_language.clone();
     let applied_language_hint = run_plan.language.clone();
 
     let run_options = RunOptions {
@@ -1177,9 +1204,10 @@ fn run_setup(info: &LoadedInfo, settings: &AppSettings, validated_language: &str
     };
 
     debug!(
-        "transcribe-cpp run: task={:?}, language={:?}, vocabulary_terms={}",
+        "transcribe-cpp run: task={:?}, language={:?}, target_language={:?}, vocabulary_terms={}",
         run_options.task,
         run_options.language,
+        run_options.target_language,
         run_options.vocabulary.len()
     );
 
@@ -1187,7 +1215,7 @@ fn run_setup(info: &LoadedInfo, settings: &AppSettings, validated_language: &str
         run_options,
         languages,
         applied_language_hint,
-        output_was_translated,
+        translated_to,
     }
 }
 
@@ -1362,10 +1390,10 @@ fn resolve_output_language_evidence(
     settings: &AppSettings,
     applied_language_hint: Option<&str>,
     supported_languages: &[String],
-    translated_to_english: bool,
+    translated_to: Option<&str>,
 ) -> OutputLanguageEvidence {
-    if translated_to_english {
-        return OutputLanguageEvidence::TranslatedToEnglish;
+    if let Some(target) = translated_to {
+        return OutputLanguageEvidence::Translated(target.to_string());
     }
 
     // Stored language intent is only evidence when this specific engine run
@@ -1432,10 +1460,11 @@ struct TranscribeCppRunPlan {
 /// Build the transcribe-cpp language/task options shared by batch and live
 /// streaming paths.
 fn transcribe_cpp_run_plan(
-    translate_to_english: bool,
+    translation: Option<&str>,
     effective_language: &str,
     model_languages: &[String],
     model_supports_translate: bool,
+    model_translate_targets: &[String],
 ) -> TranscribeCppRunPlan {
     let requested_language = match effective_language {
         "auto" => None,
@@ -1447,8 +1476,9 @@ fn transcribe_cpp_run_plan(
     // they always stay on auto.
     let language = requested_language.filter(|lang| model_languages.iter().any(|l| l == lang));
     let (task, target_language) = cpp_translation_task(
-        translate_to_english,
+        translation,
         model_supports_translate,
+        model_translate_targets,
         language.as_deref(),
     );
 
@@ -1602,29 +1632,61 @@ where
     }
 }
 
-/// Decide a transcribe-cpp run's task + translation target from settings.
+/// Decide a transcribe-cpp run's task + translation target.
 ///
-/// "Translate to English" only fires where the model advertises translation.
-/// Unlike transcribe-rs (which forces the target to English itself when its
-/// `translate` flag is set), transcribe-cpp requires an explicit
-/// `target_language`: a null target defaults to the *source*, so a non-English
-/// source silently becomes e.g. es→es and Canary rejects the unadvertised pair.
-/// An English source is skipped entirely — en→en is not a real translation, and
-/// it's reachable by default since auto-detect-less models coerce intent to "en".
+/// `requested_target` is the language the recording asked to translate into.
+/// It only fires where the model advertises translation, and only into a
+/// target the model lists (`model_targets`; an empty list means the model file
+/// doesn't advertise targets, so the engine's own pair checks decide).
+/// transcribe-cpp needs an explicit `target_language`: a null target defaults
+/// to the *source*. A run whose source already is the target is a plain
+/// transcription — e.g. en→en.
+///
+/// Anything that can't translate falls back to transcription, so the user
+/// still gets their words rather than an error.
 ///
 /// Returns `(task, target_language)` ready to drop into `RunOptions`.
 fn cpp_translation_task(
-    translate_to_english: bool,
+    requested_target: Option<&str>,
     model_supports_translate: bool,
+    model_targets: &[String],
     source_language: Option<&str>,
 ) -> (Task, Option<String>) {
-    let translate_to_en =
-        translate_to_english && model_supports_translate && source_language != Some("en");
-    if translate_to_en {
-        (Task::Translate, Some("en".to_string()))
-    } else {
-        (Task::Transcribe, None)
+    use crate::managers::model::canonical_language_code;
+
+    let Some(requested) = requested_target.filter(|t| !t.is_empty()) else {
+        return (Task::Transcribe, None);
+    };
+    let wanted = canonical_language_code(requested);
+    if source_language.is_some_and(|src| canonical_language_code(src) == wanted) {
+        return (Task::Transcribe, None);
     }
+    if !model_supports_translate {
+        warn!(
+            "Translation to '{}' requested, but the loaded model can't translate; transcribing instead",
+            requested
+        );
+        return (Task::Transcribe, None);
+    }
+    // Pass the model's own spelling of the code (e.g. `en-US`) when it lists one.
+    let target = if model_targets.is_empty() {
+        requested.to_string()
+    } else {
+        match model_targets
+            .iter()
+            .find(|t| canonical_language_code(t) == wanted)
+        {
+            Some(t) => t.clone(),
+            None => {
+                warn!(
+                    "Translation to '{}' requested, but the loaded model only translates into {:?}; transcribing instead",
+                    requested, model_targets
+                );
+                return (Task::Transcribe, None);
+            }
+        }
+    };
+    (Task::Translate, Some(target))
 }
 
 /// Drain a stream command channel, ignoring fed audio, until the caller
@@ -1877,7 +1939,7 @@ mod tests {
         for evidence in [
             OutputLanguageEvidence::ModelDetected("ja".to_string()),
             OutputLanguageEvidence::UserSelected("en".to_string()),
-            OutputLanguageEvidence::TranslatedToEnglish,
+            OutputLanguageEvidence::Translated("en".to_string()),
         ] {
             let result = post_process_transcription_text(
                 "学校に行きます".to_string(),
@@ -1917,7 +1979,7 @@ mod tests {
             ..Default::default()
         };
         let supported = languages(&["en", "pt"]);
-        let evidence = resolve_output_language_evidence(&settings, Some("pt"), &supported, false);
+        let evidence = resolve_output_language_evidence(&settings, Some("pt"), &supported, None);
 
         let result = post_process_transcription_text(
             "eu vi um carro".to_string(),
@@ -1942,7 +2004,7 @@ mod tests {
         };
 
         let evidence =
-            resolve_output_language_evidence(&settings, Some("nb"), &languages(&["nb"]), false);
+            resolve_output_language_evidence(&settings, Some("nb"), &languages(&["nb"]), None);
 
         assert_eq!(
             evidence,
@@ -1957,7 +2019,7 @@ mod tests {
             ..Default::default()
         };
         let evidence =
-            resolve_output_language_evidence(&settings, None, &languages(&["en", "pt"]), false);
+            resolve_output_language_evidence(&settings, None, &languages(&["en", "pt"]), None);
 
         // Too short for a reliable text detection, so the gated "um" must
         // survive; the universal "uhm" is removed regardless.
@@ -2046,8 +2108,7 @@ mod tests {
             ..Default::default()
         };
 
-        let evidence =
-            resolve_output_language_evidence(&settings, None, &languages(&["en"]), false);
+        let evidence = resolve_output_language_evidence(&settings, None, &languages(&["en"]), None);
 
         assert_eq!(
             evidence,
@@ -2066,7 +2127,7 @@ mod tests {
             &settings,
             Some("en"),
             &languages(&["en", "de"]),
-            false,
+            None,
         );
 
         assert_eq!(
@@ -2085,7 +2146,7 @@ mod tests {
         };
         let supported = languages(&["en", "de", "pt"]);
 
-        let evidence = resolve_output_language_evidence(&settings, None, &supported, false);
+        let evidence = resolve_output_language_evidence(&settings, None, &supported, None);
         assert_eq!(evidence, OutputLanguageEvidence::Unknown);
 
         let result = post_process_transcription_text(
@@ -2105,16 +2166,11 @@ mod tests {
             ..Default::default()
         };
         let supported = languages(&[]);
-        let plan = transcribe_cpp_run_plan(false, "en", &supported, false);
+        let plan = transcribe_cpp_run_plan(None, "en", &supported, false, &[]);
 
         assert_eq!(plan.language, None);
         assert_eq!(
-            resolve_output_language_evidence(
-                &settings,
-                plan.language.as_deref(),
-                &supported,
-                false,
-            ),
+            resolve_output_language_evidence(&settings, plan.language.as_deref(), &supported, None),
             OutputLanguageEvidence::Unknown
         );
     }
@@ -2130,15 +2186,48 @@ mod tests {
             &settings,
             Some("pt"),
             &languages(&["en", "pt"]),
-            true,
+            Some("en"),
         );
 
-        assert_eq!(evidence, OutputLanguageEvidence::TranslatedToEnglish);
+        assert_eq!(
+            evidence,
+            OutputLanguageEvidence::Translated("en".to_string())
+        );
     }
 
     #[test]
-    fn transcribe_cpp_run_plan_skips_english_translation() {
-        let plan = transcribe_cpp_run_plan(true, "en", &languages(&["en", "es"]), true);
+    fn translated_output_is_in_the_target_language() {
+        let settings = AppSettings {
+            selected_language: "en".to_string(),
+            ..Default::default()
+        };
+
+        let evidence = resolve_output_language_evidence(
+            &settings,
+            Some("en"),
+            &languages(&["en", "de"]),
+            Some("de"),
+        );
+
+        assert_eq!(
+            evidence,
+            OutputLanguageEvidence::Translated("de".to_string())
+        );
+        assert_eq!(evidence.language(), Some("de"));
+    }
+
+    #[test]
+    fn transcribe_cpp_run_plan_transcribes_without_a_requested_target() {
+        let plan = transcribe_cpp_run_plan(None, "en", &languages(&["en", "de"]), true, &[]);
+
+        assert!(matches!(plan.task, Task::Transcribe));
+        assert_eq!(plan.language.as_deref(), Some("en"));
+        assert_eq!(plan.target_language, None);
+    }
+
+    #[test]
+    fn transcribe_cpp_run_plan_skips_translation_into_the_source_language() {
+        let plan = transcribe_cpp_run_plan(Some("en"), "en", &languages(&["en", "es"]), true, &[]);
 
         assert!(matches!(plan.task, Task::Transcribe));
         assert_eq!(plan.language.as_deref(), Some("en"));
@@ -2147,7 +2236,7 @@ mod tests {
 
     #[test]
     fn transcribe_cpp_run_plan_translates_supported_non_english() {
-        let plan = transcribe_cpp_run_plan(true, "es", &languages(&["en", "es"]), true);
+        let plan = transcribe_cpp_run_plan(Some("en"), "es", &languages(&["en", "es"]), true, &[]);
 
         assert!(matches!(plan.task, Task::Translate));
         assert_eq!(plan.language.as_deref(), Some("es"));
@@ -2155,8 +2244,43 @@ mod tests {
     }
 
     #[test]
+    fn transcribe_cpp_run_plan_translates_english_into_an_advertised_target() {
+        let targets = languages(&["en", "de", "fr"]);
+        let plan = transcribe_cpp_run_plan(
+            Some("de"),
+            "en",
+            &languages(&["en", "de", "fr"]),
+            true,
+            &targets,
+        );
+
+        assert!(matches!(plan.task, Task::Translate));
+        assert_eq!(plan.language.as_deref(), Some("en"));
+        assert_eq!(plan.target_language.as_deref(), Some("de"));
+    }
+
+    #[test]
+    fn transcribe_cpp_run_plan_transcribes_when_target_is_not_advertised() {
+        let targets = languages(&["en", "de"]);
+        let plan =
+            transcribe_cpp_run_plan(Some("ja"), "en", &languages(&["en", "de"]), true, &targets);
+
+        assert!(matches!(plan.task, Task::Transcribe));
+        assert_eq!(plan.target_language, None);
+    }
+
+    #[test]
+    fn transcribe_cpp_run_plan_uses_the_models_spelling_of_the_target() {
+        let targets = languages(&["en-US", "de"]);
+        let plan = transcribe_cpp_run_plan(Some("en"), "de", &languages(&["de"]), true, &targets);
+
+        assert!(matches!(plan.task, Task::Translate));
+        assert_eq!(plan.target_language.as_deref(), Some("en-US"));
+    }
+
+    #[test]
     fn transcribe_cpp_run_plan_requires_model_translation_support() {
-        let plan = transcribe_cpp_run_plan(true, "es", &languages(&["en", "es"]), false);
+        let plan = transcribe_cpp_run_plan(Some("en"), "es", &languages(&["en", "es"]), false, &[]);
 
         assert!(matches!(plan.task, Task::Transcribe));
         assert_eq!(plan.language.as_deref(), Some("es"));

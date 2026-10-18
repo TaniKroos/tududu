@@ -14,6 +14,22 @@ Everything runs locally on your computer. No account, no cloud, and your voice n
 3. A local speech model (Canary 1B v2) turns English speech directly into text in your target language.
 4. The result is pasted into the active app.
 
+## Using translation
+
+1. On the **Models** page, download and select **Canary 1B v2** (about 800 MB).
+2. On the **General** page, under **Translation**, pick a language in **Translate To**.
+3. Click into any text field, hold the translate shortcut (**⌥T** on macOS, **Ctrl+Alt+T** on Windows), speak English, and release.
+
+The normal shortcut (**⌥Space** / **Ctrl+Space**) still pastes plain English. If the selected model can't translate into the chosen language, Tududu pastes the English text instead.
+
+Canary 1B v2 translates English into Bulgarian, Croatian, Czech, Danish, Dutch, Estonian, Finnish, French, German, Greek, Hungarian, Italian, Lithuanian, Maltese, Polish, Portuguese, Romanian, Russian, Slovak, Slovenian, Spanish, Swedish and Ukrainian (and those languages back into English).
+
+To translate an audio file from the command line (16 kHz mono WAV), using a development build:
+
+```bash
+src-tauri/target/debug/handy -f speech.wav --model handy-computer/canary-1b-v2-gguf/canary-1b-v2-Q5_K_M.gguf --translate-to de
+```
+
 ## Development
 
 Prerequisites: [Rust](https://rustup.rs/), [Bun](https://bun.sh/), and CMake (`brew install cmake` on macOS).

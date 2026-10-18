@@ -57,6 +57,8 @@ pub trait ShortcutAction: Send + Sync {
 // Transcribe Action
 struct TranscribeAction {
     post_process: bool,
+    /// Translate into `translation_target_language` instead of transcribing.
+    translate: bool,
 }
 
 /// Field name for structured output JSON schema
@@ -427,6 +429,18 @@ impl ShortcutAction for TranscribeAction {
         let plan_started = Instant::now();
         let settings = get_settings(app);
         let is_always_on = settings.always_on_microphone;
+
+        // Decide before the live decode starts, which reads it as it begins.
+        let translation = if self.translate {
+            let target = settings.translation_target_language.clone();
+            if target.is_none() {
+                warn!("Translate shortcut used with no translation language set; transcribing");
+            }
+            target
+        } else {
+            None
+        };
+        tm.set_recording_translation(translation);
 
         let selected_model_info = app
             .state::<Arc<ModelManager>>()
@@ -856,11 +870,22 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
         "transcribe".to_string(),
         Arc::new(TranscribeAction {
             post_process: false,
+            translate: false,
         }) as Arc<dyn ShortcutAction>,
     );
     map.insert(
         "transcribe_with_post_process".to_string(),
-        Arc::new(TranscribeAction { post_process: true }) as Arc<dyn ShortcutAction>,
+        Arc::new(TranscribeAction {
+            post_process: true,
+            translate: false,
+        }) as Arc<dyn ShortcutAction>,
+    );
+    map.insert(
+        "transcribe_translate".to_string(),
+        Arc::new(TranscribeAction {
+            post_process: false,
+            translate: true,
+        }) as Arc<dyn ShortcutAction>,
     );
     map.insert(
         "cancel".to_string(),

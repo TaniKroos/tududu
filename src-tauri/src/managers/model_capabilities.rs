@@ -58,6 +58,8 @@ const KEY_LANGUAGES: &str = "general.languages";
 const KEY_CAP_STREAMING: &str = "stt.capability.streaming";
 const KEY_CAP_TRANSLATE: &str = "stt.capability.translate";
 const KEY_CAP_LANG_DETECT: &str = "stt.capability.lang_detect";
+const KEY_TRANSLATION_TARGETS: &str = "stt.translation.target_languages";
+const KEY_TRANSLATION_PAIRS: &str = "stt.translation.pairs";
 const PROBE_KEYS: &[&str] = &[
     KEY_ARCH,
     KEY_NAME,
@@ -66,6 +68,8 @@ const PROBE_KEYS: &[&str] = &[
     KEY_CAP_STREAMING,
     KEY_CAP_TRANSLATE,
     KEY_CAP_LANG_DETECT,
+    KEY_TRANSLATION_TARGETS,
+    KEY_TRANSLATION_PAIRS,
 ];
 
 /// How confident we are that Handy can run a given model, judged from its GGUF
@@ -106,6 +110,12 @@ pub struct CapabilityProbe {
     pub supports_translation: Option<bool>,
     /// `stt.capability.lang_detect` — automatic language detection.
     pub supports_language_detect: Option<bool>,
+    /// `stt.translation.target_languages` — languages a translate run can
+    /// produce. Absent on GGUFs that predate the key.
+    pub translation_targets: Option<Vec<String>>,
+    /// `stt.translation.pairs` — allowed `source>target` translations (e.g.
+    /// `en>de`). Absent when the model doesn't restrict pairs.
+    pub translation_pairs: Option<Vec<String>>,
 }
 
 impl CapabilityProbe {
@@ -138,6 +148,8 @@ impl CapabilityProbe {
             supports_streaming: meta.get_bool(KEY_CAP_STREAMING),
             supports_translation: meta.get_bool(KEY_CAP_TRANSLATE),
             supports_language_detect: meta.get_bool(KEY_CAP_LANG_DETECT),
+            translation_targets: meta.get_string_array(KEY_TRANSLATION_TARGETS),
+            translation_pairs: meta.get_string_array(KEY_TRANSLATION_PAIRS),
         }
     }
 }

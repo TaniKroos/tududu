@@ -97,6 +97,9 @@ impl From<&CatalogModel> for ModelDescriptor {
                 supports_streaming: Some(m.capabilities.streaming),
                 supports_translation: Some(m.capabilities.translate),
                 supports_language_detect: Some(m.capabilities.lang_detect),
+                // Not in the catalog; read from the file once downloaded.
+                translation_targets: None,
+                translation_pairs: None,
             },
             files: m.files.clone(),
             default_quant: m.default_quant.clone(),

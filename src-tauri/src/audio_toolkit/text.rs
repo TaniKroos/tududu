@@ -280,7 +280,9 @@ pub enum OutputLanguageEvidence {
     /// Detected from the transcribed text with high confidence, constrained to
     /// the model's supported languages. Weakest accepted evidence.
     TextDetected(String),
-    TranslatedToEnglish,
+    /// The model translated the speech, so the text is in the run's target
+    /// language regardless of what was spoken.
+    Translated(String),
     Unknown,
 }
 
@@ -290,8 +292,8 @@ impl OutputLanguageEvidence {
             Self::UserSelected(language)
             | Self::ModelConstrained(language)
             | Self::ModelDetected(language)
-            | Self::TextDetected(language) => Some(language),
-            Self::TranslatedToEnglish => Some("en"),
+            | Self::TextDetected(language)
+            | Self::Translated(language) => Some(language),
             Self::Unknown => None,
         }
     }

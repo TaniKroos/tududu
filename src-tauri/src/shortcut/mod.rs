@@ -686,6 +686,20 @@ pub fn change_translate_to_english_setting(app: AppHandle, enabled: bool) -> Res
     Ok(())
 }
 
+/// Set the language the translate shortcut translates into; `None` or an
+/// empty string turns translation off.
+#[tauri::command]
+#[specta::specta]
+pub fn change_translation_target_language_setting(
+    app: AppHandle,
+    language: Option<String>,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.translation_target_language = language.filter(|l| !l.trim().is_empty());
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn change_selected_language_setting(app: AppHandle, language: String) -> Result<(), String> {

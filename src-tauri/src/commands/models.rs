@@ -228,3 +228,144 @@ pub async fn cancel_download(
         .cancel_download(&model_id)
         .map_err(|e| e.to_string())
 }
+
+/// What the translate shortcut can do with a model.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, specta::Type)]
+pub struct TranslationOptions {
+    /// Whether the model can translate at all.
+    pub supported: bool,
+    /// The language the model will treat speech as: the selected language,
+    /// resolved for this model ("auto" when the model detects it).
+    pub source_language: String,
+    /// Languages speech in `source_language` can be translated into.
+    pub targets: Vec<String>,
+}
+
+/// Translation targets for a model, read from the downloaded file's header
+/// (catalog entries don't carry them) and narrowed to what the current source
+/// language can reach.
+#[tauri::command]
+#[specta::specta]
+pub async fn get_translation_options(
+    app_handle: AppHandle,
+    model_manager: State<'_, Arc<ModelManager>>,
+    model_id: String,
+) -> Result<TranslationOptions, String> {
+    use crate::managers::model_capabilities::{CapabilityProber, GgufHeaderProber};
+
+    let info = model_manager
+        .get_model_info(&model_id)
+        .ok_or_else(|| format!("Model not found: {}", model_id))?;
+    let settings = get_settings(&app_handle);
+    let source_language = crate::managers::model::effective_language(
+        &settings.selected_language,
+        &info.supported_languages,
+        info.supports_language_detection,
+    );
+    let probe = model_manager
+        .get_model_path(&model_id)
+        .map(|path| GgufHeaderProber.probe_file(&path))
+        .unwrap_or_default();
+    let supported = probe
+        .supports_translation
+        .unwrap_or(info.supports_translation);
+    let targets = reachable_translation_targets(
+        supported,
+        &source_language,
+        probe.translation_targets.as_deref().unwrap_or_default(),
+        probe.translation_pairs.as_deref().unwrap_or_default(),
+        &info.supported_languages,
+    );
+    Ok(TranslationOptions {
+        supported,
+        source_language,
+        targets,
+    })
+}
+
+/// Languages a translate run from `source` can produce. Pairs (`src>dst`) are
+/// the strictest information, then the advertised target list; a model that
+/// advertises neither is assumed to translate between its own languages.
+/// The source itself is never a target — that would just be a transcription.
+fn reachable_translation_targets(
+    supported: bool,
+    source: &str,
+    targets: &[String],
+    pairs: &[String],
+    languages: &[String],
+) -> Vec<String> {
+    use crate::managers::model::canonical_language_code as canon;
+
+    if !supported {
+        return Vec::new();
+    }
+    let is_source = |lang: &str| source != "auto" && canon(lang) == canon(source);
+    let candidates: Vec<String> = if !pairs.is_empty() {
+        pairs
+            .iter()
+            .filter_map(|pair| pair.split_once('>'))
+            .filter(|(src, _)| source == "auto" || canon(src) == canon(source))
+            .map(|(_, dst)| dst.to_string())
+            .collect()
+    } else if !targets.is_empty() {
+        targets.to_vec()
+    } else {
+        languages.to_vec()
+    };
+    let mut out: Vec<String> = Vec::new();
+    for lang in candidates {
+        if !is_source(&lang) && !out.iter().any(|l| canon(l) == canon(&lang)) {
+            out.push(lang);
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reachable_translation_targets;
+
+    fn v(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn pairs_limit_targets_to_what_the_source_reaches() {
+        let pairs = v(&["en>de", "de>en", "en>fr", "fr>en"]);
+        let targets = v(&["en", "de", "fr"]);
+
+        assert_eq!(
+            reachable_translation_targets(true, "en", &targets, &pairs, &[]),
+            v(&["de", "fr"])
+        );
+        assert_eq!(
+            reachable_translation_targets(true, "de", &targets, &pairs, &[]),
+            v(&["en"])
+        );
+    }
+
+    #[test]
+    fn target_list_is_used_without_pairs_and_excludes_the_source() {
+        let targets = v(&["en", "de", "fr"]);
+
+        assert_eq!(
+            reachable_translation_targets(true, "en", &targets, &[], &v(&["en", "lv"])),
+            v(&["de", "fr"])
+        );
+    }
+
+    #[test]
+    fn models_that_cannot_translate_have_no_targets() {
+        assert!(reachable_translation_targets(false, "en", &v(&["de"]), &[], &[]).is_empty());
+    }
+
+    #[test]
+    fn auto_source_offers_every_target_once() {
+        let pairs = v(&["en>de", "fr>de", "de>en"]);
+
+        assert_eq!(
+            reachable_translation_targets(true, "auto", &[], &pairs, &[]),
+            v(&["de", "en"])
+        );
+    }
+}

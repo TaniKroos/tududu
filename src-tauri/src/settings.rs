@@ -429,8 +429,15 @@ pub struct AppSettings {
     pub clamshell_microphone: Option<String>,
     #[serde(default)]
     pub selected_output_device: Option<String>,
+    /// Upstream Handy's "translate to English" toggle. Tududu translates only
+    /// through the translate shortcut and `translation_target_language`, so
+    /// this is kept for settings-file compatibility and no longer read.
     #[serde(default = "default_translate_to_english")]
     pub translate_to_english: bool,
+    /// Language the translate shortcut translates speech into (e.g. "de").
+    /// `None` until the user picks one; the shortcut then just transcribes.
+    #[serde(default)]
+    pub translation_target_language: Option<String>,
     #[serde(default = "default_selected_language")]
     pub selected_language: String,
     #[serde(default = "default_overlay_position")]
@@ -948,6 +955,24 @@ pub fn get_default_settings() -> AppSettings {
             current_binding: default_post_process_shortcut.to_string(),
         },
     );
+    #[cfg(target_os = "macos")]
+    let default_translate_shortcut = "option+t";
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    let default_translate_shortcut = "ctrl+alt+t";
+    // Ubuntu opens a terminal on ctrl+alt+t.
+    #[cfg(target_os = "linux")]
+    let default_translate_shortcut = "ctrl+alt+space";
+
+    bindings.insert(
+        "transcribe_translate".to_string(),
+        ShortcutBinding {
+            id: "transcribe_translate".to_string(),
+            name: "Translate".to_string(),
+            description: "Converts your speech into text in your translation language.".to_string(),
+            default_binding: default_translate_shortcut.to_string(),
+            current_binding: default_translate_shortcut.to_string(),
+        },
+    );
     bindings.insert(
         "cancel".to_string(),
         ShortcutBinding {
@@ -980,6 +1005,7 @@ pub fn get_default_settings() -> AppSettings {
         clamshell_microphone: None,
         selected_output_device: None,
         translate_to_english: false,
+        translation_target_language: None,
         selected_language: "auto".to_string(),
         overlay_position: default_overlay_position(),
         debug_mode: false,
