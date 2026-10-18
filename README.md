@@ -7,6 +7,8 @@ Everything runs locally on your computer. No account, no cloud, and your voice n
 - **Platforms:** macOS (Apple Silicon and Intel) and Windows (x64 and ARM64)
 - **Status:** early development. Translation is being built on top of the Handy dictation engine.
 
+**New here? Start with [SETUP.md](SETUP.md)**: install or build Tududu on macOS or Windows and set up translation.
+
 ## How it works
 
 1. Press the shortcut and speak English.
