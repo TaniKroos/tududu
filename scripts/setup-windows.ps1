@@ -18,7 +18,9 @@
 
 .PARAMETER Dir
     Where to clone Tududu when the script isn't run from inside a checkout.
-    Defaults to .\tududu.
+    Defaults to a "tududu" folder in your user folder (C:\Users\<you>\tududu),
+    whatever folder PowerShell is in. An admin PowerShell starts in
+    C:\Windows\System32, which is no place for a clone.
 
 .EXAMPLE
     # From inside a clone:
@@ -32,7 +34,7 @@
 param(
     [switch]$Build,
     [switch]$NoRun,
-    [string]$Dir = "tududu"
+    [string]$Dir = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -131,13 +133,21 @@ if (-not $inCheckout -and $PSScriptRoot) {
 if ($inCheckout) {
     Write-Ok "Using the checkout in $((Get-Location).Path)"
 } else {
-    if (Test-Path $Dir) {
-        Stop-Setup "'$Dir' already exists but isn't a Tududu checkout. Pass -Dir with another folder name."
+    if (-not $Dir) { $Dir = Join-Path $env:USERPROFILE "tududu" }
+    $isCheckout = (Test-Path (Join-Path $Dir "package.json")) -and (Test-Path (Join-Path $Dir "src-tauri\tauri.conf.json"))
+    if ($isCheckout) {
+        # A previous run already cloned it: reuse that copy.
+        Set-Location $Dir
+        Write-Ok "Using the checkout in $((Get-Location).Path)"
+    } else {
+        if (Test-Path $Dir) {
+            Stop-Setup "'$Dir' already exists but isn't a Tududu checkout. Pass -Dir with another folder."
+        }
+        & git clone $RepoUrl $Dir
+        if ($LASTEXITCODE -ne 0) { Stop-Setup "git couldn't clone $RepoUrl." }
+        Set-Location $Dir
+        Write-Ok "Cloned into $((Get-Location).Path)"
     }
-    & git clone $RepoUrl $Dir
-    if ($LASTEXITCODE -ne 0) { Stop-Setup "git couldn't clone $RepoUrl." }
-    Set-Location $Dir
-    Write-Ok "Cloned into $((Get-Location).Path)"
 }
 
 # --- Dependencies ---------------------------------------------------------
