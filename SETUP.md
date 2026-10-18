@@ -44,6 +44,7 @@ If the script stops with a message, follow what it says (often: open a new Power
 - [First run: set up translation](#first-run-set-up-translation)
 - [Using Tududu](#using-tududu)
 - [Troubleshooting](#troubleshooting)
+- [Uninstalling](#uninstalling)
 
 ---
 
@@ -249,5 +250,47 @@ See the matching section in [BUILD.md](BUILD.md#windows-build-fails-with-path-li
 
 **Microphone not detected (Windows).**
 Settings → Privacy & security → Microphone: turn on **Let desktop apps access your microphone**.
+
+---
+
+## Uninstalling
+
+### Windows
+
+`scripts\uninstall-windows.ps1` removes everything the setup put on your PC. It shows each item with its size and asks before removing it. First, see what it would remove (nothing is changed):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\uninstall-windows.ps1 -DryRun
+```
+
+Then run it for real. It asks for administrator rights, opens in a new window, and asks about each item:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\uninstall-windows.ps1
+```
+
+| Removed by default (press Enter)                           | Kept by default (type `y` to remove)                             |
+| ---------------------------------------------------------- | ---------------------------------------------------------------- |
+| Tududu source folder(s), including build output            | Git, Rust, Bun, CMake, Vulkan SDK, Visual Studio C++ Build Tools |
+| An installed Tududu app                                    |                                                                  |
+| Settings, history and recordings                           |                                                                  |
+| Downloaded speech models                                   |                                                                  |
+| Build leftovers and Windows Defender exclusions for Tududu |                                                                  |
+
+Build tools stay unless you say otherwise, because other programs may use them. Tools that the setup script installed itself are the exception: for those, Enter means remove. Add `-All` to remove everything without questions, or `-Dir <folder>` if you cloned Tududu somewhere other than your user folder.
+
+The script deletes its own folder along the way, so run it from a copy if you want to keep the script.
+
+### macOS
+
+Remove these by hand:
+
+```bash
+rm -rf ~/tududu                                              # or wherever you cloned it
+rm -rf ~/Library/Application\ Support/com.smudgee.tududu      # settings, history, recordings
+rm -rf ~/.cache/huggingface/hub/models--handy-computer--*     # downloaded models (shared with Handy)
+```
+
+If you installed the app, drag Tududu from Applications to the Trash. Rust (`rustup self uninstall`), Bun (`rm -rf ~/.bun`) and CMake (`brew uninstall cmake`) can be removed the same way if nothing else needs them.
 
 For more build details, see [BUILD.md](BUILD.md).

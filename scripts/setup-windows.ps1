@@ -71,7 +71,19 @@ function Install-WithWinget([string]$Id, [string]$Label, [string[]]$Extra = @())
     if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) {
         Stop-Setup "winget couldn't install $Label (exit code $LASTEXITCODE). Install it manually, then run this script again."
     }
+    if ($LASTEXITCODE -eq 0) { Save-InstalledTool $Id }
     Update-SessionEnvironment
+}
+
+# Remember which tools this script installed, so uninstall-windows.ps1 can
+# offer to remove exactly those and leave tools you already had alone.
+function Save-InstalledTool([string]$Id) {
+    $stateDir = Join-Path $env:LOCALAPPDATA "Tududu-setup"
+    New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+    $file = Join-Path $stateDir "installed-tools.txt"
+    $known = @()
+    if (Test-Path $file) { $known = @(Get-Content $file) }
+    if ($known -notcontains $Id) { Add-Content -Path $file -Value $Id }
 }
 
 function Test-VCTools {
