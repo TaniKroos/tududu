@@ -21,11 +21,11 @@ Every push to `main` builds installers for macOS (Apple Silicon and Intel) and W
 1. Open the repository's **Actions** tab on GitHub and select the latest successful **Main Branch Build** run.
 2. Under **Artifacts**, download the one for your computer (you must be signed in to GitHub):
 
-   | Your computer | Artifact | Inside |
-   |---|---|---|
-   | Mac with Apple Silicon (M1 or later) | `…-aarch64-apple-darwin` | `.dmg` |
-   | Intel Mac | `…-x86_64-apple-darwin` | `.dmg` |
-   | Windows PC (most PCs) | `…-x86_64-pc-windows-msvc` | `.msi` and `-setup.exe` |
+   | Your computer                                           | Artifact                    | Inside                  |
+   | ------------------------------------------------------- | --------------------------- | ----------------------- |
+   | Mac with Apple Silicon (M1 or later)                    | `…-aarch64-apple-darwin`    | `.dmg`                  |
+   | Intel Mac                                               | `…-x86_64-apple-darwin`     | `.dmg`                  |
+   | Windows PC (most PCs)                                   | `…-x86_64-pc-windows-msvc`  | `.msi` and `-setup.exe` |
    | Windows on ARM (e.g. Surface Pro X, Snapdragon laptops) | `…-aarch64-pc-windows-msvc` | `.msi` and `-setup.exe` |
 
 3. Install it. The builds aren't code-signed yet, so your system will warn you the first time:
@@ -154,6 +154,7 @@ The `.msi` and `-setup.exe` are in `src-tauri\target\release\bundle\`.
    Bulgarian, Croatian, Czech, Danish, Dutch, Estonian, Finnish, French, German, Greek, Hungarian, Italian, Lithuanian, Maltese, Polish, Portuguese, Romanian, Russian, Slovak, Slovenian, Spanish, Swedish, Ukrainian.
 
    Other models transcribe English but can't translate into these languages.
+
 3. **Pick your language.** Open **General → Translation** and choose one under **Translate To**.
 
 ---
@@ -162,11 +163,11 @@ The `.msi` and `-setup.exe` are in `src-tauri\target\release\bundle\`.
 
 Click into any text field (an email, a chat, a document), then **hold** a shortcut, speak, and **release**:
 
-| What you want | macOS | Windows |
-|---|---|---|
-| Speak English → paste in your chosen language | **⌥ Option + T** | **Ctrl + Alt + T** |
-| Speak English → paste English | **⌥ Option + Space** | **Ctrl + Space** |
-| Cancel a recording | **Esc** | **Esc** |
+| What you want                                 | macOS                | Windows            |
+| --------------------------------------------- | -------------------- | ------------------ |
+| Speak English → paste in your chosen language | **⌥ Option + T**     | **Ctrl + Alt + T** |
+| Speak English → paste English                 | **⌥ Option + Space** | **Ctrl + Space**   |
+| Cancel a recording                            | **Esc**              | **Esc**            |
 
 You can change the shortcuts under **General**. If the chosen language isn't one the model can translate into, Tududu pastes the English text instead.
 
