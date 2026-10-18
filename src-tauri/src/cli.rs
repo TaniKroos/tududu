@@ -41,6 +41,11 @@ pub struct CliArgs {
     #[arg(long, value_name = "LANG", requires = "transcribe_file")]
     pub translate_to: Option<String>,
 
+    /// With --translate-to, also print the English on the line after the
+    /// translation, as the "Also paste English: on a new line" setting does.
+    #[arg(long, requires = "translate_to")]
+    pub with_english: bool,
+
     /// Model id to load for --transcribe-file (default: the selected model).
     #[arg(long)]
     pub model: Option<String>,

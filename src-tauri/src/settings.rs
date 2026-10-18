@@ -193,6 +193,20 @@ pub enum ClipboardHandling {
     CopyToClipboard,
 }
 
+/// Whether a translation is pasted together with the English the user said,
+/// so they can check it says what they meant.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TranslationEnglishCopy {
+    /// Paste only the translation.
+    #[default]
+    Off,
+    /// The translation, then the English on the next line.
+    NewLine,
+    /// The translation followed by the English in brackets.
+    Brackets,
+}
+
 /// Script applied to Mandarin and Cantonese output. Other languages are never
 /// converted.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type, Default)]
@@ -438,6 +452,9 @@ pub struct AppSettings {
     /// `None` until the user picks one; the shortcut then just transcribes.
     #[serde(default)]
     pub translation_target_language: Option<String>,
+    /// Also paste the English alongside a translation.
+    #[serde(default)]
+    pub translation_english_copy: TranslationEnglishCopy,
     #[serde(default = "default_selected_language")]
     pub selected_language: String,
     #[serde(default = "default_overlay_position")]
@@ -1006,6 +1023,7 @@ pub fn get_default_settings() -> AppSettings {
         selected_output_device: None,
         translate_to_english: false,
         translation_target_language: None,
+        translation_english_copy: TranslationEnglishCopy::default(),
         selected_language: "auto".to_string(),
         overlay_position: default_overlay_position(),
         debug_mode: false,

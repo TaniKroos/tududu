@@ -9,6 +9,7 @@ import type {
   TranscribeAcceleratorSetting,
   ShortcutActivation,
   VadBackend,
+  TranslationEnglishCopy,
 } from "@/bindings";
 import { commands } from "@/bindings";
 import { toast } from "sonner";
@@ -138,6 +139,10 @@ const settingUpdaters: {
   translation_target_language: (value) =>
     commands.changeTranslationTargetLanguageSetting(
       (value as string | null) || null,
+    ),
+  translation_english_copy: (value) =>
+    commands.changeTranslationEnglishCopySetting(
+      value as TranslationEnglishCopy,
     ),
   selected_language: (value) =>
     commands.changeSelectedLanguageSetting(value as string),

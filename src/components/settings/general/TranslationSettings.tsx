@@ -1,6 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { commands, type ModelInfo, type TranslationOptions } from "@/bindings";
+import {
+  commands,
+  type ModelInfo,
+  type TranslationEnglishCopy,
+  type TranslationOptions,
+} from "@/bindings";
 import { SettingsGroup } from "../../ui/SettingsGroup";
 import { SettingContainer } from "../../ui/SettingContainer";
 import { Dropdown } from "../../ui/Dropdown";
@@ -55,6 +60,19 @@ export const TranslationSettings: React.FC = () => {
   const targetReachable =
     target !== null && targetOptions.some((o) => o.value === target);
   const modelName = modelInfo?.name ?? "";
+  const englishCopy = getSetting("translation_english_copy") ?? "off";
+  const englishCopyOptions: { value: TranslationEnglishCopy; label: string }[] =
+    [
+      { value: "off", label: t("settings.translation.englishCopy.off") },
+      {
+        value: "new_line",
+        label: t("settings.translation.englishCopy.newLine"),
+      },
+      {
+        value: "brackets",
+        label: t("settings.translation.englishCopy.brackets"),
+      },
+    ];
 
   return (
     <SettingsGroup title={t("settings.translation.title")}>
@@ -76,6 +94,24 @@ export const TranslationSettings: React.FC = () => {
             targetOptions.length === 0 ||
             isUpdating("translation_target_language")
           }
+        />
+      </SettingContainer>
+      <SettingContainer
+        title={t("settings.translation.englishCopy.title")}
+        description={t("settings.translation.englishCopy.description")}
+        descriptionMode="tooltip"
+        grouped={true}
+      >
+        <Dropdown
+          options={englishCopyOptions}
+          selectedValue={englishCopy}
+          onSelect={(value) =>
+            updateSetting(
+              "translation_english_copy",
+              value as TranslationEnglishCopy,
+            )
+          }
+          disabled={isUpdating("translation_english_copy")}
         />
       </SettingContainer>
       {options && !options.supported && (

@@ -12,6 +12,7 @@ use crate::managers::audio::AudioRecordingManager;
 use crate::managers::model::ModelManager;
 use crate::settings::{
     get_settings, AppSettings, ChineseScript, ModelUnloadTimeout, TranscribeAcceleratorSetting,
+    TranslationEnglishCopy,
 };
 use anyhow::Result;
 use chunked::ChunkedDecode;
@@ -267,6 +268,14 @@ pub struct TranscriptionManager {
     /// shortcut starts it; `None` transcribes. Batch re-transcriptions (history
     /// retry, CLI files) never read it.
     recording_translation: Arc<Mutex<Option<String>>>,
+}
+
+/// A request to translate a transcription: into which language, and whether
+/// the English is pasted alongside.
+#[derive(Debug, Clone, Copy)]
+pub struct TranslationRequest<'a> {
+    pub target: &'a str,
+    pub english: TranslationEnglishCopy,
 }
 
 impl TranscriptionManager {
@@ -907,8 +916,8 @@ impl TranscriptionManager {
 
     /// Like [`Self::transcribe`], translating the clip into `target` (the
     /// CLI's --translate-to).
-    pub fn translate(&self, audio: Vec<f32>, target: &str) -> Result<String> {
-        self.complete(Instant::now(), audio, None, Some(target))
+    pub fn translate(&self, audio: Vec<f32>, request: TranslationRequest) -> Result<String> {
+        self.complete(Instant::now(), audio, None, Some(request))
     }
 
     /// Transcribe a finished recording: what its live decode produced, or a
@@ -916,8 +925,12 @@ impl TranscriptionManager {
     pub fn transcribe_recording(&self, samples: Vec<f32>) -> Result<String> {
         let started = Instant::now();
         let live = self.finalize_live(samples.len())?;
-        let translation = self.recording_translation();
-        self.complete(started, samples, live, translation.as_deref())
+        let target = self.recording_translation();
+        let english = get_settings(&self.app_handle).translation_english_copy;
+        let request = target
+            .as_deref()
+            .map(|target| TranslationRequest { target, english });
+        self.complete(started, samples, live, request)
     }
 
     /// The final text of one transcription, from its live result or else a
@@ -927,7 +940,7 @@ impl TranscriptionManager {
         started: Instant,
         audio: Vec<f32>,
         live: Option<RunOutcome>,
-        translation: Option<&str>,
+        translation: Option<TranslationRequest>,
     ) -> Result<String> {
         #[cfg(debug_assertions)]
         if std::env::var("HANDY_FORCE_TRANSCRIPTION_FAILURE").is_ok() {
@@ -944,15 +957,41 @@ impl TranscriptionManager {
             return Ok(String::new());
         }
 
+        // The English copy is a second, plain transcription of the same audio.
+        let english_audio = translation
+            .filter(|request| request.english != TranslationEnglishCopy::Off)
+            .map(|_| audio.clone());
         let outcome = match live {
             Some(outcome) => outcome,
-            None => self.decode_batch(audio, translation)?,
+            None => self.decode_batch(audio, translation.map(|request| request.target))?,
         };
         let settings = get_settings(&self.app_handle);
-        let final_result = finish_text(outcome, &settings);
+        let mut final_result = finish_text(outcome, &settings);
+
+        if let (Some(request), Some(english_audio)) = (translation, english_audio) {
+            match self.decode_batch(english_audio, None) {
+                Ok(outcome) => {
+                    let english = finish_text(outcome, &settings);
+                    final_result = with_english_copy(final_result, &english, request.english);
+                }
+                Err(e)
+                    if matches!(
+                        e.downcast_ref::<EngineError>(),
+                        Some(EngineError::Cancelled)
+                    ) =>
+                {
+                    return Err(e);
+                }
+                // The translation is still useful on its own.
+                Err(e) => warn!(
+                    "Couldn't transcribe the English to paste with the translation: {}",
+                    e
+                ),
+            }
+        }
 
         let translation_note = match translation {
-            Some(target) => format!(" (translation to '{}' requested)", target),
+            Some(request) => format!(" (translation to '{}' requested)", request.target),
             None => String::new(),
         };
         // Real-time factor. Input PCM is 16 kHz mono, so audio length in seconds
@@ -1632,6 +1671,31 @@ where
     }
 }
 
+/// Add the English the user said to a translation, per `mode`. Skipped when
+/// there's no English, or when the "translation" already is that English (the
+/// model couldn't translate and transcribed instead), so it isn't pasted twice.
+fn with_english_copy(translated: String, english: &str, mode: TranslationEnglishCopy) -> String {
+    fn letters(text: &str) -> String {
+        text.chars()
+            .filter(|c| c.is_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect()
+    }
+    let english = english.trim();
+    if english.is_empty()
+        || translated.trim().is_empty()
+        || letters(&translated) == letters(english)
+    {
+        return translated;
+    }
+    let translated = translated.trim_end();
+    match mode {
+        TranslationEnglishCopy::Off => translated.to_string(),
+        TranslationEnglishCopy::NewLine => format!("{}\n{}", translated, english),
+        TranslationEnglishCopy::Brackets => format!("{} ({})", translated, english),
+    }
+}
+
 /// Decide a transcribe-cpp run's task + translation target.
 ///
 /// `requested_target` is the language the recording asked to translate into.
@@ -2276,6 +2340,55 @@ mod tests {
 
         assert!(matches!(plan.task, Task::Translate));
         assert_eq!(plan.target_language.as_deref(), Some("en-US"));
+    }
+
+    #[test]
+    fn english_copy_goes_on_a_new_line_or_in_brackets() {
+        let translated = "Hola, ¿cómo estás?".to_string();
+        let english = "Hello, how are you?";
+
+        assert_eq!(
+            with_english_copy(translated.clone(), english, TranslationEnglishCopy::NewLine),
+            "Hola, ¿cómo estás?\nHello, how are you?"
+        );
+        assert_eq!(
+            with_english_copy(
+                translated.clone(),
+                english,
+                TranslationEnglishCopy::Brackets
+            ),
+            "Hola, ¿cómo estás? (Hello, how are you?)"
+        );
+        assert_eq!(
+            with_english_copy(translated, english, TranslationEnglishCopy::Off),
+            "Hola, ¿cómo estás?"
+        );
+    }
+
+    #[test]
+    fn english_copy_is_skipped_when_the_model_did_not_translate() {
+        // A fallback transcription differs from the English run only in
+        // punctuation or case.
+        assert_eq!(
+            with_english_copy(
+                "The meeting moved to Thursday.".to_string(),
+                "the meeting moved to Thursday",
+                TranslationEnglishCopy::NewLine
+            ),
+            "The meeting moved to Thursday."
+        );
+    }
+
+    #[test]
+    fn english_copy_is_skipped_when_either_side_is_empty() {
+        assert_eq!(
+            with_english_copy("Hallo".to_string(), "  ", TranslationEnglishCopy::NewLine),
+            "Hallo"
+        );
+        assert_eq!(
+            with_english_copy(String::new(), "Hello", TranslationEnglishCopy::Brackets),
+            ""
+        );
     }
 
     #[test]

@@ -700,6 +700,19 @@ pub fn change_translation_target_language_setting(
     Ok(())
 }
 
+/// Choose whether translations are pasted with the English alongside.
+#[tauri::command]
+#[specta::specta]
+pub fn change_translation_english_copy_setting(
+    app: AppHandle,
+    mode: settings::TranslationEnglishCopy,
+) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.translation_english_copy = mode;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn change_selected_language_setting(app: AppHandle, language: String) -> Result<(), String> {

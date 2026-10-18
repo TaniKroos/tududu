@@ -645,7 +645,14 @@
       },
       "unsupportedModel": "{{model}} can't translate. Choose Canary 1B v2 on the Models page to translate into European languages.",
       "unreachableTarget": "{{model}} can't translate {{source}} into {{target}}. Choose another language.",
-      "chooseLanguage": "Choose a language to start translating with the translate shortcut."
+      "chooseLanguage": "Choose a language to start translating with the translate shortcut.",
+      "englishCopy": {
+        "title": "Also Paste English",
+        "description": "Paste what you said in English next to the translation, so you can check it says what you meant. Adds a moment, because the speech is transcribed a second time.",
+        "off": "Off",
+        "newLine": "On a new line",
+        "brackets": "In brackets"
+      }
     }
   },
   "footer": {

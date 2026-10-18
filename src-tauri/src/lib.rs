@@ -573,7 +573,17 @@ fn run_headless_transcription(app: &AppHandle, args: &CliArgs) -> i32 {
         }
         let t = Instant::now();
         let result = match args.translate_to.as_deref() {
-            Some(target) => tm.translate(samples.clone(), target),
+            Some(target) => tm.translate(
+                samples.clone(),
+                crate::managers::transcription::TranslationRequest {
+                    target,
+                    english: if args.with_english {
+                        crate::settings::TranslationEnglishCopy::NewLine
+                    } else {
+                        crate::settings::TranslationEnglishCopy::Off
+                    },
+                },
+            ),
             None => tm.transcribe(samples.clone()),
         };
         match result {
@@ -664,6 +674,7 @@ pub fn run(cli_args: CliArgs) {
             shortcut::change_autostart_setting,
             shortcut::change_translate_to_english_setting,
             shortcut::change_translation_target_language_setting,
+            shortcut::change_translation_english_copy_setting,
             shortcut::change_selected_language_setting,
             shortcut::change_overlay_position_setting,
             shortcut::change_overlay_style_setting,

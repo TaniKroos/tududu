@@ -205,6 +205,8 @@ Click into any text field (an email, a chat, a document), then **hold** a shortc
 
 You can change the shortcuts under **General**. If the chosen language isn't one the model can translate into, Tududu pastes the English text instead.
 
+To check a translation says what you meant, set **General → Translation → Also Paste English** to **On a new line** or **In brackets**. Tududu then pastes, for example, `Hola, ¿cómo estás? (Hello, how are you?)`.
+
 Everything you say is kept on the **History** page, where you can copy or replay it.
 
 ### Translating an audio file (optional)
