@@ -4,8 +4,41 @@ This guide takes you from a fresh clone to speaking English and getting the text
 
 Tududu runs entirely on your computer. The only downloads are the tools and the speech model; your voice and text never leave the machine.
 
+## Quick start: one command
+
+The setup script installs whatever's missing, gets the code, and starts Tududu. Run it again any time: it skips what's already done. The first start compiles the speech engine, which takes **10–25 minutes**.
+
+**Windows** (x64 PCs). Open **PowerShell** and paste:
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/TaniKroos/tududu/main/scripts/setup-windows.ps1)))"
+```
+
+It installs Git, Rust, Bun, CMake, the Vulkan SDK and the Visual Studio C++ Build Tools with `winget` (Windows may ask for permission a few times), clones Tududu into a `tududu` folder, and starts it.
+
+**macOS.** Open **Terminal** and paste:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TaniKroos/tududu/main/scripts/setup-macos.sh | bash
+```
+
+It installs the Xcode Command Line Tools, Homebrew, CMake, Rust and Bun if needed (it may ask for your Mac password), clones Tududu into a `tududu` folder, and starts it.
+
+**Already cloned?** Run the script from the repository folder instead:
+
+|         | Start the app                                                        | Build an installer | Set up only    |
+| ------- | -------------------------------------------------------------------- | ------------------ | -------------- |
+| Windows | `powershell -ExecutionPolicy Bypass -File scripts\setup-windows.ps1` | add `-Build`       | add `-NoRun`   |
+| macOS   | `./scripts/setup-macos.sh`                                           | add `--build`      | add `--no-run` |
+
+When the window opens, continue with [First run](#first-run-set-up-translation). To start Tududu again later, run the same command; setup is skipped and the app opens in seconds.
+
+If the script stops with a message, follow what it says (often: open a new PowerShell or Terminal window and run it again). The manual steps below do the same thing by hand.
+
+## All options
+
 - [Option A: install a prebuilt app](#option-a-install-a-prebuilt-app)
-- [Option B: build from source](#option-b-build-from-source)
+- [Option B: build from source by hand](#option-b-build-from-source)
   - [macOS](#macos)
   - [Windows](#windows)
 - [First run: set up translation](#first-run-set-up-translation)
