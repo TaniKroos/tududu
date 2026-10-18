@@ -5,6 +5,7 @@ name: "Main Branch Build"
 # so any commit on main has a downloadable, testable build.
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
 
