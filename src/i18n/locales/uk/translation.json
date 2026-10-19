@@ -148,6 +148,10 @@
           "transcribe_translate": {
             "name": "Translate Shortcut",
             "description": "Hold to speak; your words are pasted in your translation language."
+          },
+          "translate_selection": {
+            "name": "Translate Selection to English",
+            "description": "Select text in any app, then press this to see it in English. The English is also copied to the clipboard."
           }
         },
         "errors": {
@@ -203,6 +207,14 @@
       "rescan": {
         "label": "Пересканувати",
         "tooltip": "Пересканувати моделі, додані до папки моделей або кешу Hugging Face поза межами Tududu"
+      },
+      "textModels": {
+        "title": "Text Models",
+        "description": "Translate text you select into English, with the Translate Selection shortcut.",
+        "ready": "Ready",
+        "download": "Download",
+        "deleteTitle": "Delete Text Model",
+        "deleteConfirm": "Delete {{name}}? Translating selected text won't work until you download it again."
       }
     },
     "sound": {
@@ -629,6 +641,16 @@
           "title": "Handy",
           "description": "Tududu is built on Handy, the open-source speech-to-text app by CJ Pais",
           "details": "Tududu is a fork of Handy (MIT License). Thanks to CJ Pais and the Handy contributors."
+        },
+        "llamaCpp": {
+          "title": "llama.cpp",
+          "description": "Runs the text model that translates selected text",
+          "details": "Tududu's text translation runs on llama.cpp (MIT License). Thanks to Georgi Gerganov and contributors."
+        },
+        "models": {
+          "title": "Models",
+          "description": "The speech and text models Tududu downloads",
+          "details": "Canary 1B v2 by NVIDIA, licensed CC-BY-4.0. Gemma 3 by Google, used under the Gemma Terms of Use."
         }
       },
       "whatsNewUpdates": {
@@ -652,6 +674,9 @@
         "off": "Off",
         "newLine": "On a new line",
         "brackets": "In brackets"
+      },
+      "selection": {
+        "needsModel": "Download {{model}} on the Models page to translate selected text into English."
       }
     }
   },
@@ -718,7 +743,15 @@
   "overlay": {
     "transcribing": "Обробка...",
     "processing": "Постобробка...",
-    "loadingModel": "Завантаження моделі..."
+    "loadingModel": "Завантаження моделі...",
+    "translating": "Translating...",
+    "translation": {
+      "copied": "English copied to clipboard",
+      "failed": "Couldn't translate",
+      "notice": "Translate selection",
+      "noSelection": "Select some text first, then press the shortcut again.",
+      "noModel": "Download a text model on the Models page to translate text."
+    }
   },
   "whatsNew": {
     "title": "Нове в Tududu v{{version}}"

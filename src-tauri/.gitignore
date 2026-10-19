@@ -11,3 +11,7 @@
 # tauri.windows.conf.json on Windows, into /usr/lib/Handy (deb/rpm) via
 # tauri.conf.json on Linux.
 /transcribe-libs/
+
+# Staged by build.rs: llama.cpp's prebuilt llama-server and its libraries, run
+# as a helper process for text translation. Bundled as llama/ (tauri.conf.json).
+/llama-runtime/

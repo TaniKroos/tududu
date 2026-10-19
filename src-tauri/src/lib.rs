@@ -19,6 +19,7 @@ mod overlay;
 mod paste_tx;
 pub mod portable;
 mod secure_input;
+mod selection;
 mod settings;
 mod shortcut;
 mod signal_handle;
@@ -212,6 +213,8 @@ fn initialize_core_logic(app_handle: &AppHandle) {
     app_handle.manage(model_manager.clone());
     app_handle.manage(transcription_manager.clone());
     app_handle.manage(history_manager.clone());
+    app_handle.manage(managers::text_model::TextModelManager::new(app_handle));
+    app_handle.manage(managers::text_engine::TextEngine::new(app_handle));
     app_handle.manage(tray::TrayState::new());
 
     // Note: Shortcuts are NOT initialized here.
@@ -492,6 +495,23 @@ fn run_headless_transcription(app: &AppHandle, args: &CliArgs) -> i32 {
         }
     }
 
+    // --translate-text: the translate-selection shortcut's translation, headless.
+    if let Some(text) = args.translate_text.as_deref() {
+        let result = tauri::async_runtime::block_on(
+            commands::text_models::translate_text_to_english(app, text),
+        );
+        return match result {
+            Ok(english) => {
+                println!("{}", english);
+                0
+            }
+            Err(e) => {
+                eprintln!("error: {:#}", e);
+                1
+            }
+        };
+    }
+
     let Some(wav) = args.transcribe_file.clone() else {
         return 0;
     };
@@ -675,6 +695,7 @@ pub fn run(cli_args: CliArgs) {
             shortcut::change_translate_to_english_setting,
             shortcut::change_translation_target_language_setting,
             shortcut::change_translation_english_copy_setting,
+            shortcut::change_selected_text_model_setting,
             shortcut::change_selected_language_setting,
             shortcut::change_overlay_position_setting,
             shortcut::change_overlay_style_setting,
@@ -747,6 +768,12 @@ pub fn run(cli_args: CliArgs) {
             commands::models::get_available_models,
             commands::models::get_model_info,
             commands::models::get_translation_options,
+            commands::text_models::get_text_models,
+            commands::text_models::download_text_model,
+            commands::text_models::cancel_text_model_download,
+            commands::text_models::delete_text_model,
+            commands::text_models::translate_text,
+            commands::text_models::dismiss_overlay,
             commands::models::download_model,
             commands::models::delete_model,
             commands::models::get_retired_models,
@@ -804,8 +831,10 @@ pub fn run(cli_args: CliArgs) {
 
     // The headless path must run as its own instance (see the single-instance
     // note below), not forward to an already-running app.
-    let headless_mode =
-        cli_args.transcribe_file.is_some() || cli_args.list_devices || cli_args.list_models;
+    let headless_mode = cli_args.transcribe_file.is_some()
+        || cli_args.list_devices
+        || cli_args.list_models
+        || cli_args.translate_text.is_some();
 
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
@@ -877,6 +906,14 @@ pub fn run(cli_args: CliArgs) {
                 signal_handle::send_transcription_input(app, "transcribe_with_post_process", "CLI");
             } else if args.iter().any(|a| a == "--cancel") {
                 crate::utils::cancel_current_operation(app);
+            } else if args.iter().any(|a| a == "--translate-selection") {
+                // Launching this second process briefly takes focus from the
+                // app with the selection; give it back before copying.
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(400));
+                    actions::trigger_action(&app, "translate_selection");
+                });
             } else {
                 // A second process was launched without remote-control flags
                 // (e.g. the binary run from a shell). On macOS, relaunching the
@@ -936,6 +973,8 @@ pub fn run(cli_args: CliArgs) {
                 managers::transcription::report_compute_devices(&transcription_manager);
                 app_handle.manage(model_manager);
                 app_handle.manage(transcription_manager);
+                app_handle.manage(managers::text_model::TextModelManager::new(&app_handle));
+                app_handle.manage(managers::text_engine::TextEngine::new(&app_handle));
 
                 let handle = app_handle.clone();
                 let args = cli_args.clone();
@@ -945,6 +984,11 @@ pub fn run(cli_args: CliArgs) {
                     // worker is told to shut down cleanly.
                     if let Some(tm) = handle.try_state::<Arc<TranscriptionManager>>() {
                         let _ = tm.unload_model();
+                    }
+                    if let Some(engine) =
+                        handle.try_state::<Arc<managers::text_engine::TextEngine>>()
+                    {
+                        engine.stop_blocking();
                     }
                     // process::exit (not app.exit, which exits 0 regardless) so the
                     // exit code propagates to the shell for CI gating. Flush first
@@ -1139,6 +1183,14 @@ pub fn run(cli_args: CliArgs) {
         // worker process, which exits by itself as soon as this process's end
         // of its stdin closes, even if it is hung. Waiting on an unload here
         // could block quitting behind a hung model load.
+        //
+        // llama-server doesn't watch its stdin, so the text engine is stopped
+        // explicitly (a kill, which can't hang).
+        tauri::RunEvent::Exit => {
+            if let Some(engine) = app.try_state::<Arc<managers::text_engine::TextEngine>>() {
+                engine.stop_blocking();
+            }
+        }
         _ => {}
     });
 }

@@ -23,6 +23,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
+# Verifies the llama.cpp runtime build.rs downloads.
+sha2 = "0.10"
 
 [dependencies]
 once_cell = "1"
@@ -111,6 +113,11 @@ windows = { version = "0.61.3", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
   "Win32_UI_WindowsAndMessaging",
+  # GetAsyncKeyState: selection.rs waits for the shortcut's modifiers to be released.
+  "Win32_UI_Input_KeyboardAndMouse",
+  # Job objects: the text engine (llama-server) dies with Tududu.
+  "Win32_System_JobObjects",
+  "Win32_Security",
 ] }
 winreg = "0.55"
 

@@ -20,6 +20,11 @@ pub struct CliArgs {
     #[arg(long)]
     pub toggle_post_process: bool,
 
+    /// Translate the text selected in the focused app into English (sent to
+    /// running instance), as the translate-selection shortcut does
+    #[arg(long)]
+    pub translate_selection: bool,
+
     /// Cancel the current operation (sent to running instance)
     #[arg(long)]
     pub cancel: bool,
@@ -45,6 +50,11 @@ pub struct CliArgs {
     /// translation, as the "Also paste English: on a new line" setting does.
     #[arg(long, requires = "translate_to")]
     pub with_english: bool,
+
+    /// Translate this text into English with the selected text model, print
+    /// the English and exit, as the translate-selection shortcut does.
+    #[arg(long, value_name = "TEXT")]
+    pub translate_text: Option<String>,
 
     /// Model id to load for --transcribe-file (default: the selected model).
     #[arg(long)]

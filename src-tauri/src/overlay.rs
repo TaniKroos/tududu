@@ -2,7 +2,7 @@ use crate::input;
 use crate::settings;
 use crate::settings::{OverlayPosition, OverlayStyle};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
 
 #[cfg(not(target_os = "macos"))]
@@ -55,7 +55,8 @@ const OVERLAY_STREAM_HEIGHT: f64 = 120.0;
 
 /// Overlay window size (logical) for a given UI state.
 fn overlay_dimensions(state: &str) -> (f64, f64) {
-    if state == "streaming" {
+    // A translation result uses the Live panel's card to show its text.
+    if state == "streaming" || state == "result" {
         (OVERLAY_STREAM_WIDTH, OVERLAY_STREAM_HEIGHT)
     } else {
         (OVERLAY_WIDTH, OVERLAY_HEIGHT)
@@ -493,7 +494,12 @@ fn show_overlay_state(app_handle: &AppHandle, state: &str) {
     if settings.overlay_style == OverlayStyle::None {
         return;
     }
+    show_overlay_state_always(app_handle, state);
+}
 
+/// Show the overlay even when the recording overlay is turned off: for
+/// translating selected text, the overlay is where the result appears.
+fn show_overlay_state_always(app_handle: &AppHandle, state: &str) {
     // The rest queries monitors and the cursor and mutates window geometry. On
     // Linux the monitor/cursor lookups hit GDK/Xlib on the process's shared X11
     // connection, which is only safe from the GTK main thread — running them on
@@ -538,7 +544,8 @@ fn show_overlay_state_on_main(app_handle: &AppHandle, state: &str) {
             let _ =
                 overlay_window.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));
             #[cfg(target_os = "windows")]
-            WINDOWS_OVERLAY_IS_STREAMING.store(state == "streaming", Ordering::Relaxed);
+            WINDOWS_OVERLAY_IS_STREAMING
+                .store(state == "streaming" || state == "result", Ordering::Relaxed);
             let size_elapsed = size_started.elapsed();
 
             let pos_started = std::time::Instant::now();
@@ -628,6 +635,56 @@ pub fn show_transcribing_overlay(app_handle: &AppHandle) {
 /// Shows the processing overlay window
 pub fn show_processing_overlay(app_handle: &AppHandle) {
     show_overlay_state(app_handle, "processing");
+}
+
+/// What a translation popup reports; the overlay words it in the UI language.
+#[derive(Clone, Copy, Debug, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TextResultKind {
+    /// `text` is the English, which is also on the clipboard.
+    Translated,
+    /// Nothing was selected.
+    NoSelection,
+    /// No text model is downloaded.
+    NoModel,
+    /// Translation failed; `text` is the reason.
+    Error,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct TextResultPayload<'a> {
+    kind: TextResultKind,
+    text: &'a str,
+}
+
+/// Shows "Translating…" while selected text is translated. Shown even when the
+/// recording overlay is turned off.
+pub fn show_translating_overlay(app_handle: &AppHandle) {
+    show_overlay_state_always(app_handle, "translating");
+}
+
+/// Shows a translation (or why there isn't one) in the overlay's text panel,
+/// then hides it after a reading time that grows with the text, unless
+/// something else has used the overlay by then. Clicking it dismisses it.
+pub fn show_text_result_overlay(app_handle: &AppHandle, kind: TextResultKind, text: &str) {
+    let _ = app_handle.emit_to(
+        "recording_overlay",
+        "overlay-text-result",
+        TextResultPayload { kind, text },
+    );
+    show_overlay_state_always(app_handle, "result");
+
+    let reading_time = Duration::from_millis((3500 + 60 * text.chars().count() as u64).min(20_000));
+    let handle = app_handle.clone();
+    std::thread::spawn(move || {
+        // Let the queued show run (it bumps the generation), then remember it.
+        std::thread::sleep(Duration::from_millis(150));
+        let shown = OVERLAY_SHOW_GENERATION.load(Ordering::SeqCst);
+        std::thread::sleep(reading_time);
+        if OVERLAY_SHOW_GENERATION.load(Ordering::SeqCst) == shown {
+            hide_recording_overlay(&handle);
+        }
+    });
 }
 
 /// Updates the overlay window position based on current settings

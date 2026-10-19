@@ -15,7 +15,7 @@ use crate::utils::{
     self, show_processing_overlay, show_recording_overlay, show_transcribing_overlay,
 };
 use crate::TranscriptionCoordinator;
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::future::Future;
@@ -827,6 +827,92 @@ impl ShortcutAction for TranscribeAction {
     }
 }
 
+/// Translates the text selected in the focused app into English with the text
+/// model, shows it in the overlay and puts it on the clipboard.
+struct TranslateSelectionAction;
+
+/// Set while a selection is being translated, so repeated presses don't stack.
+static TRANSLATING_SELECTION: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+impl ShortcutAction for TranslateSelectionAction {
+    fn start(&self, app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {
+        use std::sync::atomic::Ordering;
+        if TRANSLATING_SELECTION.swap(true, Ordering::SeqCst) {
+            debug!("Already translating a selection; ignoring the shortcut");
+            return;
+        }
+        let app = app.clone();
+        // Waits for key releases and the copy, so keep it off the shortcut thread.
+        std::thread::spawn(move || {
+            translate_selection(&app);
+            TRANSLATING_SELECTION.store(false, Ordering::SeqCst);
+        });
+    }
+
+    fn stop(&self, _app: &AppHandle, _binding_id: &str, _shortcut_str: &str) {}
+}
+
+fn translate_selection(app: &AppHandle) {
+    use crate::managers::text_model::TextModelManager;
+    use crate::selection;
+    use crate::utils::TextResultKind;
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+
+    // Check for a model before touching the clipboard.
+    let model_id = get_settings(app).selected_text_model;
+    if let Err(e) = app.state::<TextModelManager>().path(&model_id) {
+        info!("Translate selection: no text model ({})", e);
+        utils::show_text_result_overlay(app, TextResultKind::NoModel, "");
+        return;
+    }
+
+    let copied = match selection::copy_selected_text(app) {
+        Ok(copied) => copied,
+        Err(e) => {
+            error!("Couldn't copy the selection: {}", e);
+            utils::show_text_result_overlay(app, TextResultKind::Error, &e);
+            return;
+        }
+    };
+    let Some(text) = copied.text else {
+        info!("Translate selection: nothing selected");
+        selection::restore_clipboard(app, copied.previous_clipboard);
+        utils::show_text_result_overlay(app, TextResultKind::NoSelection, "");
+        return;
+    };
+
+    info!(
+        "Translate selection: translating {} chars",
+        text.chars().count()
+    );
+    utils::show_translating_overlay(app);
+    let result = tauri::async_runtime::block_on(
+        crate::commands::text_models::translate_text_to_english(app, &text),
+    );
+    match result {
+        Ok(english) if !english.trim().is_empty() => {
+            if let Err(e) = app.clipboard().write_text(english.clone()) {
+                warn!("Couldn't put the translation on the clipboard: {}", e);
+            }
+            utils::show_text_result_overlay(app, TextResultKind::Translated, &english);
+        }
+        Ok(_) => {
+            selection::restore_clipboard(app, copied.previous_clipboard);
+            utils::show_text_result_overlay(
+                app,
+                TextResultKind::Error,
+                "The text model returned an empty translation",
+            );
+        }
+        Err(e) => {
+            error!("Translating the selection failed: {:#}", e);
+            selection::restore_clipboard(app, copied.previous_clipboard);
+            utils::show_text_result_overlay(app, TextResultKind::Error, &format!("{:#}", e));
+        }
+    }
+}
+
 // Cancel Action
 struct CancelAction;
 
@@ -863,6 +949,18 @@ impl ShortcutAction for TestAction {
     }
 }
 
+/// Run a shortcut's action as if its key were pressed and released, for
+/// remote-control CLI flags.
+pub fn trigger_action(app: &AppHandle, binding_id: &str) {
+    match ACTION_MAP.get(binding_id) {
+        Some(action) => {
+            action.start(app, binding_id, "CLI");
+            action.stop(app, binding_id, "CLI");
+        }
+        None => warn!("No action for '{}'", binding_id),
+    }
+}
+
 // Static Action Map
 pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::new(|| {
     let mut map = HashMap::new();
@@ -886,6 +984,10 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
             post_process: false,
             translate: true,
         }) as Arc<dyn ShortcutAction>,
+    );
+    map.insert(
+        "translate_selection".to_string(),
+        Arc::new(TranslateSelectionAction) as Arc<dyn ShortcutAction>,
     );
     map.insert(
         "cancel".to_string(),

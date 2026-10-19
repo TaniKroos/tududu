@@ -190,6 +190,7 @@ The `.msi` and `-setup.exe` are in `src-tauri\target\release\bundle\`.
    Other models transcribe English but can't translate into these languages.
 
 3. **Pick your language.** Open **General → Translation** and choose one under **Translate To**.
+4. **To translate text you read into English** (optional): on the **Models** page, under **Text Models**, download **Gemma 3 1B** (about 770 MB). It's a separate model because Canary only understands speech, not text.
 
 ---
 
@@ -204,6 +205,12 @@ Click into any text field (an email, a chat, a document), then **hold** a shortc
 | Cancel a recording                            | **Esc**              | **Esc**            |
 
 You can change the shortcuts under **General**. If the chosen language isn't one the model can translate into, Tududu pastes the English text instead.
+
+### Translating selected text into English
+
+Select text in any app (a message, an email, a web page), then press **⌥ Option + Shift + E** on macOS or **Ctrl + Alt + E** on Windows. The English appears in a small popup and is copied to your clipboard. Click the popup to close it early.
+
+This uses the **Gemma 3 1B** text model and works for most languages, including ones Canary doesn't cover, such as Chinese, Hindi and Japanese. The first translation after starting Tududu takes a couple of seconds while the model loads; later ones take well under a second. The model unloads after the same idle time as the speech model (**Advanced → Unload Model**).
 
 To check a translation says what you meant, set **General → Translation → Also Paste English** to **On a new line** or **In brackets**. Tududu then pastes, for example, `Hola, ¿cómo estás? (Hello, how are you?)`.
 
@@ -225,6 +232,14 @@ src-tauri\target\debug\handy.exe -f speech.wav --model handy-computer/canary-1b-
 
 Use any language code from the list above (`de`, `fr`, `es`, `it`, `pt`, `nl`, `pl`, `sv`, `uk`, …). The model must already be downloaded through the app.
 
+Text works the same way, with the text model downloaded:
+
+```bash
+src-tauri/target/debug/handy --translate-text "Hola, ¿qué tal?"
+```
+
+With Tududu running, `--translate-selection` translates the current selection, as the shortcut does, so other hotkey tools can trigger it.
+
 ---
 
 ## Troubleshooting
@@ -240,6 +255,12 @@ Windows won't let a normal app type into a program running as administrator. Run
 
 **I get English instead of a translation.**
 Check that **Canary 1B v2** is the selected model and that a language is chosen under **General → Translation**. A warning appears there if the model can't translate.
+
+**Translate Selection says "Select some text first" even though text is selected.**
+Tududu copies the selection with Cmd + C / Ctrl + C. Some places block copying (password fields, some protected documents). On macOS, Tududu also needs Accessibility permission, as for the other shortcuts.
+
+**Building needs internet the first time.**
+The build downloads llama.cpp's text engine (12–32 MB) from GitHub and checks it against a pinned checksum. To build offline, set `TUDUDU_SKIP_LLAMA_RUNTIME=1`; translating selected text is then unavailable in that build.
 
 **`cmake` error mentioning `CMAKE_POLICY_VERSION_MINIMUM` or "Compatibility with CMake < 3.5".**
 Set the variable before building, as in the run steps above.
@@ -276,7 +297,7 @@ powershell -ExecutionPolicy Bypass -File scripts\uninstall-windows.ps1
 | Tududu source folder(s), including build output            | Git, Rust, Bun, CMake, Vulkan SDK, Visual Studio C++ Build Tools |
 | An installed Tududu app                                    |                                                                  |
 | Settings, history and recordings                           |                                                                  |
-| Downloaded speech models                                   |                                                                  |
+| Downloaded speech and text models                          |                                                                  |
 | Build leftovers and Windows Defender exclusions for Tududu |                                                                  |
 
 Build tools stay unless you say otherwise, because other programs may use them. Tools that the setup script installed itself are the exception: for those, Enter means remove. Add `-All` to remove everything without questions, or `-Dir <folder>` if you cloned Tududu somewhere other than your user folder.
@@ -290,7 +311,8 @@ Remove these by hand:
 ```bash
 rm -rf ~/tududu                                              # or wherever you cloned it
 rm -rf ~/Library/Application\ Support/com.smudgee.tududu      # settings, history, recordings
-rm -rf ~/.cache/huggingface/hub/models--handy-computer--*     # downloaded models (shared with Handy)
+rm -rf ~/.cache/huggingface/hub/models--handy-computer--*     # speech models (shared with Handy)
+rm -rf ~/.cache/huggingface/hub/models--ggml-org--gemma-3-1b-it-GGUF   # text model
 ```
 
 If you installed the app, drag Tududu from Applications to the Trash. Rust (`rustup self uninstall`), Bun (`rm -rf ~/.bun`) and CMake (`brew uninstall cmake`) can be removed the same way if nothing else needs them.

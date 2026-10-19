@@ -469,3 +469,21 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Translation of selected text: finished text reads upright (the Live panel's
+   italic marks text still being recognised), and the card dismisses on click. */
+.stext-cap.result {
+  font-style: normal;
+  color: var(--color-text);
+  padding-bottom: 4px;
+  cursor: pointer;
+}
+.sresult-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--s-muted);
+}
+.sresult-dot.ok {
+  background: var(--s-accent);
+}

@@ -455,6 +455,10 @@ pub struct AppSettings {
     /// Also paste the English alongside a translation.
     #[serde(default)]
     pub translation_english_copy: TranslationEnglishCopy,
+    /// Text model that translates selected text (an id from
+    /// `managers::text_model::TEXT_MODELS`).
+    #[serde(default = "default_selected_text_model")]
+    pub selected_text_model: String,
     #[serde(default = "default_selected_language")]
     pub selected_language: String,
     #[serde(default = "default_overlay_position")]
@@ -577,6 +581,10 @@ fn default_hold_threshold_ms() -> u64 {
 
 fn default_always_on_microphone() -> bool {
     false
+}
+
+fn default_selected_text_model() -> String {
+    crate::managers::text_model::TEXT_MODELS[0].id.to_string()
 }
 
 fn default_translate_to_english() -> bool {
@@ -990,6 +998,21 @@ pub fn get_default_settings() -> AppSettings {
             current_binding: default_translate_shortcut.to_string(),
         },
     );
+    #[cfg(target_os = "macos")]
+    let default_translate_selection_shortcut = "option+shift+e";
+    #[cfg(not(target_os = "macos"))]
+    let default_translate_selection_shortcut = "ctrl+alt+e";
+
+    bindings.insert(
+        "translate_selection".to_string(),
+        ShortcutBinding {
+            id: "translate_selection".to_string(),
+            name: "Translate Selection to English".to_string(),
+            description: "Translates the text you've selected into English.".to_string(),
+            default_binding: default_translate_selection_shortcut.to_string(),
+            current_binding: default_translate_selection_shortcut.to_string(),
+        },
+    );
     bindings.insert(
         "cancel".to_string(),
         ShortcutBinding {
@@ -1024,6 +1047,7 @@ pub fn get_default_settings() -> AppSettings {
         translate_to_english: false,
         translation_target_language: None,
         translation_english_copy: TranslationEnglishCopy::default(),
+        selected_text_model: default_selected_text_model(),
         selected_language: "auto".to_string(),
         overlay_position: default_overlay_position(),
         debug_mode: false,

@@ -11,6 +11,9 @@ import { ShowWhatsNewOnUpdate } from "../ShowWhatsNewOnUpdate";
 import { ThemeSelector } from "../ThemeSelector";
 import { LogDirectory } from "../debug";
 
+/** Projects and models Tududu builds on, in settings.about.acknowledgments. */
+const ACKNOWLEDGMENTS = ["handy", "ggml", "llamaCpp", "models"] as const;
+
 export const AboutSettings: React.FC = () => {
   const { t } = useTranslation();
   const [version, setVersion] = useState("");
@@ -82,16 +85,19 @@ export const AboutSettings: React.FC = () => {
       </SettingsGroup>
 
       <SettingsGroup title={t("settings.about.acknowledgments.title")}>
-        <SettingContainer
-          title={t("settings.about.acknowledgments.ggml.title")}
-          description={t("settings.about.acknowledgments.ggml.description")}
-          grouped={true}
-          layout="stacked"
-        >
-          <div className="text-sm text-mid-gray">
-            {t("settings.about.acknowledgments.ggml.details")}
-          </div>
-        </SettingContainer>
+        {ACKNOWLEDGMENTS.map((key) => (
+          <SettingContainer
+            key={key}
+            title={t(`settings.about.acknowledgments.${key}.title`)}
+            description={t(`settings.about.acknowledgments.${key}.description`)}
+            grouped={true}
+            layout="stacked"
+          >
+            <div className="text-sm text-mid-gray">
+              {t(`settings.about.acknowledgments.${key}.details`)}
+            </div>
+          </SettingContainer>
+        ))}
       </SettingsGroup>
     </div>
   );

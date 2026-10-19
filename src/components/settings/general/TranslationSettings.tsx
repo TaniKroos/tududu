@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { listen } from "@tauri-apps/api/event";
 import {
   commands,
   type ModelInfo,
+  type TextModelInfo,
   type TranslationEnglishCopy,
   type TranslationOptions,
 } from "@/bindings";
@@ -27,6 +29,25 @@ export const TranslationSettings: React.FC = () => {
   const { getSetting, updateSetting, isUpdating } = useSettings();
   const { currentModel, models } = useModelStore();
   const [options, setOptions] = useState<TranslationOptions | null>(null);
+  const [textModel, setTextModel] = useState<TextModelInfo | null>(null);
+  const selectedTextModel = getSetting("selected_text_model");
+
+  // The translate-selection shortcut needs its text model downloaded.
+  useEffect(() => {
+    const refresh = () =>
+      commands
+        .getTextModels()
+        .then((list) =>
+          setTextModel(
+            list.find((m) => m.id === selectedTextModel) ?? list[0] ?? null,
+          ),
+        );
+    refresh();
+    const unlisten = listen("model-download-complete", refresh);
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [selectedTextModel]);
 
   const target = getSetting("translation_target_language") ?? null;
   const sourceIntent = getSetting("selected_language") || "auto";
@@ -114,6 +135,14 @@ export const TranslationSettings: React.FC = () => {
           disabled={isUpdating("translation_english_copy")}
         />
       </SettingContainer>
+      <ShortcutInput shortcutId="translate_selection" grouped={true} />
+      {textModel && !textModel.is_downloaded && (
+        <Alert variant="info" contained>
+          {t("settings.translation.selection.needsModel", {
+            model: textModel.name,
+          })}
+        </Alert>
+      )}
       {options && !options.supported && (
         <Alert variant="warning" contained>
           {t("settings.translation.unsupportedModel", { model: modelName })}

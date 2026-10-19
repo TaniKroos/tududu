@@ -178,16 +178,23 @@ foreach ($id in $Identifiers) {
 if (-not $dataFound) { Write-Skip "None found" }
 
 # --- Models -------------------------------------------------------------------
-Write-Step "Downloaded speech models"
+Write-Step "Downloaded speech and text models"
 $hfHome = if ($env:HF_HOME) { $env:HF_HOME } else { Join-Path $env:USERPROFILE ".cache\huggingface" }
 $hub = Join-Path $hfHome "hub"
+# Speech models come from handy-computer; text models are listed in
+# src-tauri/src/managers/text_model.rs (TEXT_MODELS).
+$textModelRepos = @("models--ggml-org--gemma-3-1b-it-GGUF")
 $models = @()
-if (Test-Path -LiteralPath $hub) { $models = @(Get-ChildItem -LiteralPath $hub -Directory -Filter "models--handy-computer--*") }
+if (Test-Path -LiteralPath $hub) {
+    $models = @(Get-ChildItem -LiteralPath $hub -Directory | Where-Object {
+            $_.Name -like "models--handy-computer--*" -or $textModelRepos -contains $_.Name
+        })
+}
 if ($models.Count -eq 0) { Write-Skip "None found" }
 else {
-    Write-Note "These are shared with the Handy app, if you also use it."
+    Write-Note "Speech models are shared with the Handy app, if you also use it."
     foreach ($m in $models) {
-        $name = $m.Name -replace '^models--handy-computer--', ''
+        $name = $m.Name -replace '^models--.*?--', ''
         Remove-FolderIfConfirmed $m.FullName "Model: $name" $true
     }
 }

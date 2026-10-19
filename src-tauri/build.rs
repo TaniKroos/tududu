@@ -36,6 +36,11 @@ fn main() {
     // Must run after transcribe staging because that helper recreates transcribe-libs/.
     stage_vc_runtime_dlls();
 
+    // Text translation runs llama.cpp's server as a helper process; stage it.
+    stage_llama_runtime();
+    // After both: llama-server only searches its own folder for DLLs.
+    copy_vc_runtime_into_llama_runtime();
+
     tauri_build::build()
 }
 
@@ -563,4 +568,201 @@ fn is_command_line_tools_only() -> bool {
         .and_then(|out| String::from_utf8(out.stdout).ok())
         .map(|path| path.trim().ends_with("CommandLineTools"))
         .unwrap_or(false)
+}
+
+/// llama.cpp release whose prebuilt `llama-server` Tududu ships. Bump together
+/// with the digests in [`llama_runtime_asset`].
+const LLAMA_CPP_BUILD: &str = "b11717";
+
+/// The prebuilt llama.cpp archive for the target, and its sha256.
+fn llama_runtime_asset(os: &str, arch: &str) -> Option<(&'static str, &'static str)> {
+    Some(match (os, arch) {
+        ("macos", "aarch64") => (
+            "macos-arm64.tar.gz",
+            "c101d5efef233ce43dd9bee93179ec180e409373d94efd2769e75ba9452eef19",
+        ),
+        ("macos", "x86_64") => (
+            "macos-x64.tar.gz",
+            "157ccdb54aa8d22c11e5c5245d39ff6ef87ae32f6c90e69dfb8e7bbdd1215549",
+        ),
+        ("windows", "x86_64") => (
+            "win-vulkan-x64.zip",
+            "773381d83f0b872c6deb1fe5ddc769d1ad6d7da80e6b1fa155374837724a20a3",
+        ),
+        // The CPU build: Vulkan on Windows-on-ARM GPUs is not dependable yet,
+        // and a 1B model runs fine on the CPU.
+        ("windows", "aarch64") => (
+            "win-cpu-arm64.zip",
+            "0f0b4061b1e96b2754d84bac6fea54102733e48833c2b68dcf593b3d48314676",
+        ),
+        _ => return None,
+    })
+}
+
+/// Whether a file from the llama.cpp archive is needed to run `llama-server`.
+/// The archives ship every llama.cpp tool; keep the server, the shared
+/// libraries it loads, and the licenses.
+fn is_llama_runtime_file(name: &str, os: &str) -> bool {
+    let lower = name.to_lowercase();
+    if lower.starts_with("license") {
+        return true;
+    }
+    if os == "windows" {
+        if lower == "llama-server.exe" {
+            return true;
+        }
+        // Each tool has an `-impl` DLL; only the server's is needed. The
+        // ggml-cpu-* variants are loaded at runtime by CPU feature level.
+        return lower.ends_with(".dll")
+            && (!lower.ends_with("-impl.dll") || lower == "llama-server-impl.dll");
+    }
+    // macOS: the binary references the `lib*.0.dylib` names (symlinks in the
+    // archive, copied as real files) plus its own impl library.
+    // `libggml.0.27.0.dylib` (the symlink target) also ends in `.0.dylib`, so
+    // require a dot-free stem.
+    lower == "llama-server"
+        || lower == "libllama-server-impl.dylib"
+        || lower
+            .strip_suffix(".0.dylib")
+            .is_some_and(|stem| !stem.contains('.'))
+}
+
+/// Stage llama.cpp's prebuilt `llama-server` and the libraries it loads into
+/// `llama-runtime/`, which the app bundles as `llama/`. Tududu starts it as a
+/// helper process to run text models (see `src/text_engine.rs`). The files live
+/// in their own folder because on Windows their DLL names (ggml.dll, ...) clash
+/// with transcribe-cpp's, which sit beside the executable.
+///
+/// Downloads with the system `curl` and unpacks with `tar` (bsdtar on Windows
+/// reads zip), both present on macOS and Windows 10+. Set
+/// `TUDUDU_SKIP_LLAMA_RUNTIME=1` to build offline; text translation then
+/// reports the engine as missing.
+fn stage_llama_runtime() {
+    use sha2::{Digest, Sha256};
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    println!("cargo:rerun-if-env-changed=TUDUDU_SKIP_LLAMA_RUNTIME");
+    println!("cargo:rerun-if-changed=llama-runtime/VERSION");
+
+    let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let dest = manifest.join("llama-runtime");
+    // The bundle maps this folder, so it must exist even when empty.
+    std::fs::create_dir_all(&dest).expect("create llama-runtime staging dir");
+
+    let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    let Some((suffix, sha256)) = llama_runtime_asset(&os, &arch) else {
+        println!("cargo:warning=No prebuilt llama.cpp for {os}/{arch}; text translation is unavailable in this build");
+        return;
+    };
+    let archive_name = format!("llama-{LLAMA_CPP_BUILD}-bin-{suffix}");
+    let stamp_path = dest.join("VERSION");
+    let server = dest.join(if os == "windows" {
+        "llama-server.exe"
+    } else {
+        "llama-server"
+    });
+    if server.exists()
+        && std::fs::read_to_string(&stamp_path).ok().as_deref() == Some(archive_name.as_str())
+    {
+        return;
+    }
+    if std::env::var_os("TUDUDU_SKIP_LLAMA_RUNTIME").is_some() {
+        println!("cargo:warning=TUDUDU_SKIP_LLAMA_RUNTIME is set; text translation is unavailable in this build");
+        return;
+    }
+
+    let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    let archive = out.join(&archive_name);
+    let url = format!(
+        "https://github.com/ggml-org/llama.cpp/releases/download/{LLAMA_CPP_BUILD}/{archive_name}"
+    );
+    let status = Command::new("curl")
+        .args(["-fsSL", "--retry", "3", "-o"])
+        .arg(&archive)
+        .arg(&url)
+        .status()
+        .expect(
+            "run curl to download llama.cpp (set TUDUDU_SKIP_LLAMA_RUNTIME=1 to build without it)",
+        );
+    assert!(
+        status.success(),
+        "downloading {url} failed (set TUDUDU_SKIP_LLAMA_RUNTIME=1 to build without it)"
+    );
+
+    let bytes = std::fs::read(&archive).expect("read llama.cpp archive");
+    let digest = format!("{:x}", Sha256::digest(&bytes));
+    assert_eq!(
+        digest, sha256,
+        "{archive_name} does not match its pinned sha256"
+    );
+
+    let unpacked = out.join("llama-unpacked");
+    let _ = std::fs::remove_dir_all(&unpacked);
+    std::fs::create_dir_all(&unpacked).unwrap();
+    let status = Command::new("tar")
+        .arg("-xf")
+        .arg(&archive)
+        .arg("-C")
+        .arg(&unpacked)
+        .status()
+        .expect("run tar to unpack llama.cpp");
+    assert!(status.success(), "unpacking {archive_name} failed");
+
+    // Replace the previous staging (another llama.cpp build or target).
+    for entry in std::fs::read_dir(&dest).unwrap().flatten() {
+        let _ = std::fs::remove_file(entry.path());
+    }
+    fn copy_wanted(dir: &Path, dest: &Path, os: &str, copied: &mut usize) {
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                copy_wanted(&path, dest, os, copied);
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            if is_llama_runtime_file(&name, os) {
+                // fs::copy follows symlinks, so the versioned dylib's content
+                // lands under the name the binary references.
+                std::fs::copy(&path, dest.join(&name))
+                    .unwrap_or_else(|e| panic!("copy {}: {e}", path.display()));
+                *copied += 1;
+            }
+        }
+    }
+    let mut copied = 0;
+    copy_wanted(&unpacked, &dest, &os, &mut copied);
+    assert!(server.exists(), "{archive_name} has no llama-server");
+    std::fs::write(&stamp_path, &archive_name).unwrap();
+    println!("cargo:warning=Staged llama.cpp {LLAMA_CPP_BUILD} runtime ({copied} files) for text translation");
+}
+
+/// Give `llama-server.exe` its own copy of the VC++ runtime DLLs that
+/// [`stage_vc_runtime_dlls`] put in `transcribe-libs/`. Windows resolves DLLs
+/// from the executable's folder, and llama-server lives in `llama/`, not beside
+/// `handy.exe`; without this it fails to start on PCs with no VC++ redist.
+fn copy_vc_runtime_into_llama_runtime() {
+    use std::path::PathBuf;
+
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
+    let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let (src, dest) = (
+        manifest.join("transcribe-libs"),
+        manifest.join("llama-runtime"),
+    );
+    let Ok(entries) = std::fs::read_dir(&src) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_lowercase();
+        if name.ends_with(".dll")
+            && (name.starts_with("msvcp140") || name.starts_with("vcruntime140"))
+        {
+            std::fs::copy(entry.path(), dest.join(entry.file_name()))
+                .unwrap_or_else(|e| panic!("copy {}: {e}", entry.path().display()));
+        }
+    }
 }

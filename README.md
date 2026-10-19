@@ -9,12 +9,16 @@ Everything runs locally on your computer. No account, no cloud, and your voice n
 
 **New here?** One command sets everything up on Windows or macOS: see [SETUP.md](SETUP.md#quick-start-one-command).
 
+It also works the other way: select text in any language and press **⌥⇧E** (**Ctrl+Alt+E** on Windows) to see it in English.
+
 ## How it works
 
 1. Press the shortcut and speak English.
 2. Silence is trimmed with Silero VAD.
 3. A local speech model (Canary 1B v2) turns English speech directly into text in your target language.
 4. The result is pasted into the active app.
+
+Selected text goes to a different model, because Canary only understands speech: Tududu copies the selection and translates it with **Gemma 3 1B**, run by [llama.cpp](https://github.com/ggml-org/llama.cpp), which ships inside the app.
 
 ## Using translation
 

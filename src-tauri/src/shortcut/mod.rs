@@ -713,6 +713,19 @@ pub fn change_translation_english_copy_setting(
     Ok(())
 }
 
+/// Choose the text model that translates selected text.
+#[tauri::command]
+#[specta::specta]
+pub fn change_selected_text_model_setting(app: AppHandle, model_id: String) -> Result<(), String> {
+    if crate::managers::text_model::TextModelManager::spec(&model_id).is_none() {
+        return Err(format!("Unknown text model: {}", model_id));
+    }
+    let mut settings = settings::get_settings(&app);
+    settings.selected_text_model = model_id;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn change_selected_language_setting(app: AppHandle, language: String) -> Result<(), String> {

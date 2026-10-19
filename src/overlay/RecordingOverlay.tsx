@@ -13,7 +13,19 @@ import i18n, { syncLanguageFromSettings } from "@/i18n";
 import type { ModelStateEvent } from "@/lib/types/events";
 import { getLanguageDirection } from "@/lib/utils/rtl";
 
-type OverlayState = "recording" | "streaming" | "transcribing" | "processing";
+type OverlayState =
+  | "recording"
+  | "streaming"
+  | "transcribing"
+  | "processing"
+  | "translating"
+  | "result";
+
+/** A selected-text translation, or why there isn't one (see overlay.rs). */
+interface TextResult {
+  kind: "translated" | "no_selection" | "no_model" | "error";
+  text: string;
+}
 
 // Number of reactive bars in the waveform (the simple, smoothed style shared by
 // every overlay form). Mic levels arrive as 16 FFT buckets; we take the first N.
@@ -61,6 +73,10 @@ const RecordingOverlay: React.FC = () => {
   // True once live text overflows the cap. A top overlay fades its top edge only
   // while overflowing, so the resting first line stays crisp flush under the pill.
   const [overflowing, setOverflowing] = useState(false);
+  const [textResult, setTextResult] = useState<TextResult>({
+    kind: "translated",
+    text: "",
+  });
 
   const smoothedLevelsRef = useRef<number[]>(Array(16).fill(0));
   // Live-text scroll-back: the text region "sticks" to the newest line while the
@@ -112,6 +128,15 @@ const RecordingOverlay: React.FC = () => {
         setIsVisible(false);
         setCaptureReady(false);
       });
+
+      // Sent just before show-overlay("result").
+      const unlistenTextResult = await listen<TextResult>(
+        "overlay-text-result",
+        (event) => {
+          setTextResult(event.payload);
+          setSession((s) => s + 1); // replay the pop-in for each result
+        },
+      );
 
       const unlistenReady = await listen("recording-ready", () => {
         setElapsed(0);
@@ -170,6 +195,7 @@ const RecordingOverlay: React.FC = () => {
       return () => {
         unlistenShow();
         unlistenHide();
+        unlistenTextResult();
         unlistenReady();
         unlistenLevel();
         unlistenStream();
@@ -285,6 +311,52 @@ const RecordingOverlay: React.FC = () => {
     </div>
   );
 
+  // ---- Translation of selected text: the Live panel's card, showing the
+  // English (or why there is none). Clicking it dismisses it early. ----
+  if (state === "result") {
+    const message =
+      textResult.kind === "translated" || textResult.kind === "error"
+        ? textResult.text
+        : textResult.kind === "no_selection"
+          ? t("overlay.translation.noSelection")
+          : t("overlay.translation.noModel");
+    const note =
+      textResult.kind === "translated"
+        ? t("overlay.translation.copied")
+        : textResult.kind === "error"
+          ? t("overlay.translation.failed")
+          : t("overlay.translation.notice");
+    return (
+      <div
+        dir={direction}
+        className={`ov-stage ${position}`}
+        onClick={() => commands.dismissOverlay()}
+      >
+        <div
+          key={session}
+          className={`scard open ${isVisible ? "" : "leaving"}`}
+        >
+          <div className="stext">
+            <div className="stext-clip">
+              <div className="stext-cap result">
+                <p>{message}</p>
+              </div>
+            </div>
+          </div>
+          <div className="sbase">
+            <div className="sbase-l">
+              <span
+                className={`sresult-dot ${textResult.kind === "translated" ? "ok" : "warn"}`}
+              />
+            </div>
+            <span className="swork-label">{note}</span>
+            <div className="sbase-r" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ---- Live overlay: a pill that sculpts open into a panel ----
   if (state === "streaming") {
     const hasText =
@@ -348,9 +420,16 @@ const RecordingOverlay: React.FC = () => {
   // ---- Minimal overlay: exactly one row at a time — waveform (recording), or a
   // spinner + label (transcribing / processing). Never both. The pill animates its
   // width between them; the cancel button is in both rows so it stays put.
-  const working = state === "transcribing" || state === "processing";
+  const working =
+    state === "transcribing" ||
+    state === "processing" ||
+    state === "translating";
   const workLabel =
-    state === "processing" ? t("overlay.processing") : transcribingLabel;
+    state === "processing"
+      ? t("overlay.processing")
+      : state === "translating"
+        ? t("overlay.translating")
+        : transcribingLabel;
 
   return (
     <div
@@ -360,7 +439,10 @@ const RecordingOverlay: React.FC = () => {
       <div
         className={`scard compact ${working && isVisible ? "cworking" : ""}`}
       >
-        {working ? workingRow(workLabel, true) : listeningRow(false, true)}
+        {working
+          ? // Cancel stops recordings; a selection translation can't be cancelled.
+            workingRow(workLabel, state !== "translating")
+          : listeningRow(false, true)}
       </div>
     </div>
   );
